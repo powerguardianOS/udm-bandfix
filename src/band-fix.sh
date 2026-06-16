@@ -155,6 +155,31 @@ CURRENT=$(printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$ICCID" 
     die "get-radio-pref failed"
 log "Current: $CURRENT"
 
+# --- Fetch current RAT mode ---
+RAT_STATUS=$(printf '{"method":"get-radio-status"}' | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null) || true
+RAT_MODE=$(printf '%s' "$RAT_STATUS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('result',{}).get('rat-mode-active',''))" 2>/dev/null) || true
+RAT_MODE=$(strip_nonprintable "$RAT_MODE")
+
+if [ "$RAT_MODE" = "WCDMA" ]; then
+    log "WARNING: WCDMA detected — modem stuck on 3G, forcing reregistration to 4G/5G"
+    _tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N)-rat.json"
+    printf '%s\n' '{"method":"set-radio-pref","params":{"iccid":"'"$ICCID"'","mode":"5gnr,lte"}}' > "$_tmpfile"
+    RESULT=$(ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_tmpfile") || true
+    rm -f "$_tmpfile"
+    if echo "$RESULT" | grep -q '"result":{}'; then
+        log "SUCCESS: RAT mode reconfiguration triggered"
+    else
+        log "WARNING: RAT mode reconfiguration attempted but unexpected response: $RESULT"
+    fi
+    log "Waiting 60s for modem to reregister..."
+    sleep 60
+    # Re-fetch band config
+    CURRENT=$(printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$ICCID" \
+        | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null) || \
+        die "get-radio-pref failed"
+    log "Current: $CURRENT"
+fi
+
 # --- Check compliance: compare against exact Odido spec ---
 check_compliance() {
     local json="$1"
