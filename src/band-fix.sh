@@ -7,8 +7,8 @@
 set -euo pipefail
 
 DATA_DIR="/data/udm-bandfix"
+TMP_DIR="$DATA_DIR/tmp"
 LOG_FILE="$DATA_DIR/band-fix.log"
-PID_FILE="$DATA_DIR/band-fix.pid"
 CONFIG="$DATA_DIR/config"
 SSH_KEY="$DATA_DIR/id_ed25519"
 KNOWN_HOSTS="$DATA_DIR/known_hosts"
@@ -22,8 +22,15 @@ NR5G_NSA_REQUIRED="1,3,7,38,78"
 # Max log size before rotation (bytes)
 LOG_MAX_BYTES=524288  # 512 KB
 
+# Strip non-printable characters
+strip_nonprintable() {
+    printf '%s' "$1" | tr -cd '[:print:]'
+}
+
 log() {
-    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
+    local msg
+    msg=$(strip_nonprintable "$*")
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" | tee -a "$LOG_FILE"
 }
 
 die() {
@@ -40,13 +47,25 @@ rotate_log() {
 
 validate_ip() {
     local ip="$1"
-    if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    ip=$(strip_nonprintable "$ip")
+    if ! printf '%s' "$ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
         die "Invalid IP address from MongoDB: '$ip' — possible injection attempt"
+    fi
+}
+
+validate_ssh_user() {
+    local user="$1"
+    if ! printf '%s' "$user" | grep -qE '^[a-zA-Z0-9_-]{1,32}$'; then
+        die "Invalid SSH_USER in config: '$user' — must be 1-32 alphanumeric/underscore/dash chars"
     fi
 }
 
 # --- Log rotation ---
 rotate_log
+
+# --- Create temp directory ---
+mkdir -p "$TMP_DIR"
+chmod 700 "$TMP_DIR"
 
 # --- Singleton guard (atomic via mkdir) ---
 LOCK_DIR="$DATA_DIR/.lock"
@@ -54,14 +73,14 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     log "Another instance is running — exiting"
     exit 0
 fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null; rm -f "$_TMPFILE"' EXIT
-_TMPFILE=""
+trap 'rmdir "$LOCK_DIR" 2>/dev/null; rm -f "$TMP_DIR"/udm-bandfix-*' EXIT
 
 # --- Load config ---
 [ -f "$CONFIG" ] || die "Config not found: $CONFIG (run install.sh first)"
 # shellcheck source=/dev/null
 source "$CONFIG"
 : "${SSH_USER:?CONFIG missing SSH_USER}"
+validate_ssh_user "$SSH_USER"
 
 # --- Get current U5G-Max IP (changes on reboot) ---
 log "Querying MongoDB for U5G-Max IP..."
@@ -81,10 +100,13 @@ LAST_IP=""
 
 if [ "$U5G_IP" != "$LAST_IP" ]; then
     log "IP changed ($LAST_IP → $U5G_IP) — updating known_hosts..."
-    # Remove old entry and add new one
-    [ -f "$KNOWN_HOSTS" ] && ssh-keygen -R "$LAST_IP" -f "$KNOWN_HOSTS" 2>/dev/null || true
-    ssh-keyscan -T 10 "$U5G_IP" >> "$KNOWN_HOSTS" 2>/dev/null || \
+    # Atomic known_hosts update
+    if [ -f "$KNOWN_HOSTS" ]; then
+        ssh-keygen -R "$LAST_IP" -f "$KNOWN_HOSTS" 2>/dev/null || true
+    fi
+    ssh-keyscan -T 10 "$U5G_IP" > "$TMP_DIR/known_hosts.tmp" 2>/dev/null || \
         die "Could not scan SSH host key for $U5G_IP"
+    mv "$TMP_DIR/known_hosts.tmp" "$KNOWN_HOSTS"
     printf '%s\n' "$U5G_IP" > "$LAST_IP_FILE"
 fi
 
@@ -109,8 +131,9 @@ if [ -z "$ICCID" ]; then
     log "WARNING: Using cached ICCID (modem may still be initializing)"
 fi
 
-# Validate ICCID: must be 18-20 digits
-if [[ ! "$ICCID" =~ ^[0-9]{18,20}$ ]]; then
+# Validate ICCID: must be 18-20 digits (strip non-printable first)
+ICCID=$(strip_nonprintable "$ICCID")
+if ! printf '%s' "$ICCID" | grep -qE '^[0-9]{18,20}$'; then
     die "Invalid ICCID: '$ICCID'"
 fi
 log "ICCID: $ICCID"
@@ -189,13 +212,12 @@ PAYLOAD=$(printf \
     '{"method":"set-radio-pref","params":{"iccid":"%s","lte_band":"%s","nr5g_sa_band":"%s","nr5g_nsa_band":"%s"}}' \
     "$ICCID" "$LTE_REQUIRED" "$NR5G_SA_REQUIRED" "$NR5G_NSA_REQUIRED")
 
-# set-radio-pref requires file redirect — pipe does NOT work
-# Write to temp file and feed as stdin through SSH to uiwwand-ctl on the modem
-_TMPFILE=$(mktemp /tmp/udm-bandfix-XXXXXX.json)
-printf '%s\n' "$PAYLOAD" > "$_TMPFILE"
-RESULT=$(ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_TMPFILE") || \
+# Write to temp file in /data/udm-bandfix/tmp/ and feed as stdin through SSH
+_tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N).json"
+printf '%s\n' "$PAYLOAD" > "$_tmpfile"
+RESULT=$(ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_tmpfile") || \
     die "set-radio-pref command failed"
-rm -f "$_TMPFILE"; _TMPFILE=""
+rm -f "$_tmpfile"
 
 if echo "$RESULT" | grep -q '"result":{}'; then
     log "SUCCESS: Band configuration applied"

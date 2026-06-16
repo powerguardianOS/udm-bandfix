@@ -10,10 +10,7 @@ SSH_KEY="$DATA_DIR/id_ed25519"
 KNOWN_HOSTS="$DATA_DIR/known_hosts"
 LOG_FILE="$DATA_DIR/band-fix.log"
 CRON_FILE="/etc/cron.d/udm-bandfix"
-ON_BOOT_DIR="/data/on_boot.d"
-ON_BOOT_SCRIPT="$ON_BOOT_DIR/10-udm-bandfix.sh"
 SCRIPT_SRC="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/src/band-fix.sh"
-ON_BOOT_SRC="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/src/on-boot.sh"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -23,8 +20,9 @@ warn() { printf '%b⚠ %s%b\n' "$YELLOW" "$*" "$NC"; }
 die()  { printf '%b✗ ERROR: %s%b\n' "$RED" "$*" "$NC" >&2; exit 1; }
 
 # Cleanup temp files on exit
+_TMP_DIR="$DATA_DIR/tmp"
 _PASS_FILE=""
-trap '[ -n "$_PASS_FILE" ] && rm -f "$_PASS_FILE"' EXIT
+trap '[ -n "$_PASS_FILE" ] && rm -f "$_PASS_FILE"; [ -d "$_TMP_DIR" ] && rmdir "$_TMP_DIR" 2>/dev/null || true' EXIT
 
 msg ""
 msg "=== udm-bandfix installer ==="
@@ -49,8 +47,15 @@ rm -f "$DATA_DIR/.write_test"
 # --- Validate IP helper ---
 validate_ip() {
     local ip="$1"
-    [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || \
+    echo "$ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' || \
         die "Invalid IP address from MongoDB: '$ip'"
+}
+
+# --- Validate SSH username helper ---
+validate_ssh_user() {
+    local user="$1"
+    echo "$user" | grep -qE '^[a-zA-Z0-9_-]{1,32}$' || \
+        die "Invalid SSH username: '$user'"
 }
 
 # --- Retrieve SSH credentials from MongoDB ---
@@ -65,6 +70,8 @@ SSH_PASS=$(mongo --quiet localhost:27117/ace \
 [ -z "$SSH_PASS" ] || [ "$SSH_PASS" = "null" ] && \
     die "Could not read SSH password from MongoDB"
 
+# Validate SSH_USER
+validate_ssh_user "$SSH_USER"
 ok "SSH user: $SSH_USER"
 
 # --- Detect U5G-Max IP ---
@@ -106,7 +113,9 @@ if ssh $SSH_STRICT_OPTS "${SSH_USER}@${U5G_IP}" "exit 0" 2>/dev/null; then
     warn "SSH key already installed on U5G-Max — skipping"
 else
     # Write password to temp file — avoids exposing it in the process list via -p
-    _PASS_FILE=$(mktemp /tmp/.udm-sshpass-XXXXXX)
+    mkdir -p "$_TMP_DIR"
+    chmod 700 "$_TMP_DIR"
+    _PASS_FILE=$(mktemp "$_TMP_DIR/.udm-sshpass-XXXXXX")
     chmod 600 "$_PASS_FILE"
     printf '%s' "$SSH_PASS" > "$_PASS_FILE"
 
@@ -136,7 +145,7 @@ ICCID=$(printf '{"method":"get-sim-state"}' \
 [ -z "$ICCID" ] && die "Could not read ICCID — SIM initialized? Try again in 2 minutes."
 
 # Validate ICCID: must be 18-20 digits
-[[ "$ICCID" =~ ^[0-9]{18,20}$ ]] || die "Unexpected ICCID format: '$ICCID'"
+echo "$ICCID" | grep -qE '^[0-9]{18,20}$' || die "Unexpected ICCID format: '$ICCID'"
 ok "ICCID: $ICCID"
 
 # --- Write config ---
@@ -168,8 +177,6 @@ ok "band-fix.sh installed: $SCRIPT_DEST"
 
 # --- Install cron job ---
 msg "Installing cron job..."
-# @reboot runs on-boot.sh which: polls for modem, restores cron if wiped, then runs fix.
-# on_boot.d is NOT used — it exists on UDM Pro/SE but not on UCG Fiber.
 cat > "$CRON_FILE" << 'EOF'
 # udm-bandfix: Odido NL band enforcement for U5G-Max
 SHELL=/bin/bash
@@ -215,7 +222,7 @@ ok "udm-bandfix installed!"
 printf '\n'
 printf '  Config:      %s\n' "$CONFIG"
 printf '  Log file:    %s\n' "$LOG_FILE"
-printf '  Cron:        on-boot (2 min delay) + hourly\n'
+printf '  Cron:        on-boot (polls until modem ready) + hourly\n'
 printf '  U5G-Max:     %s\n' "$U5G_IP"
 printf '  ICCID:       %s\n' "$ICCID"
 printf '\n'

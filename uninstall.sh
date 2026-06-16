@@ -5,7 +5,6 @@ set -euo pipefail
 
 DATA_DIR="/data/udm-bandfix"
 CRON_FILE="/etc/cron.d/udm-bandfix"
-ON_BOOT_SCRIPT="/data/on_boot.d/10-udm-bandfix.sh"
 SSH_KEY="$DATA_DIR/id_ed25519"
 KNOWN_HOSTS="$DATA_DIR/known_hosts"
 CONFIG="$DATA_DIR/config"
@@ -23,7 +22,7 @@ if [ -f "$CONFIG" ] && [ -f "$SSH_KEY" ] && [ -f "$KNOWN_HOSTS" ]; then
         --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" 2>/dev/null | tr -d '\r\n') || true
 
     if [ -n "$U5G_IP" ] && [ "$U5G_IP" != "null" ] && \
-       [[ "$U5G_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+       echo "$U5G_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
         echo "Removing SSH key from U5G-Max ($U5G_IP)..."
         PUB_KEY=$(awk '{print $1, $2}' "$SSH_KEY.pub" 2>/dev/null) || true
         if [ -n "$PUB_KEY" ]; then
@@ -47,9 +46,6 @@ fi
 
 # --- Remove cron job ---
 [ -f "$CRON_FILE" ] && rm -f "$CRON_FILE" && echo "Cron job removed"
-
-# --- Remove boot persistence script ---
-[ -f "$ON_BOOT_SCRIPT" ] && rm -f "$ON_BOOT_SCRIPT" && echo "Boot script removed"
 
 # --- Remove CLI command ---
 [ -f "/usr/local/sbin/udm-bandfix" ] && rm -f "/usr/local/sbin/udm-bandfix" && echo "CLI command removed"
