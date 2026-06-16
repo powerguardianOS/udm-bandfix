@@ -162,7 +162,7 @@ ok "Config written: $CONFIG"
 # --- Install band-fix.sh ---
 msg "Installing band-fix.sh..."
 SCRIPT_DEST="$DATA_DIR/band-fix.sh"
-INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" && pwd 2>/dev/null)" || INSTALLER_DIR=""
 if [ -f "$INSTALLER_DIR/src/band-fix.sh" ]; then
     cp "$INSTALLER_DIR/src/band-fix.sh" "$SCRIPT_DEST"
 elif command -v curl >/dev/null 2>&1; then
