@@ -1,4 +1,3 @@
-audit-report-*.md
 *.log
 *.pid
 .lock/
