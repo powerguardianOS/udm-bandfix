@@ -35,8 +35,36 @@ get_last_run() {
     fi
 }
 
+get_last_result() {
+    [ -f "$LOG_FILE" ] || { printf "—"; return; }
+    local line
+    line=$(grep -E "\] (OK:|VERIFIED:|ERROR:|WARNING:)" "$LOG_FILE" | tail -1)
+    [ -z "$line" ] && { printf "—"; return; }
+    if echo "$line" | grep -q "OK:"; then
+        printf "${G}✓ Odido-compliant${NC}"
+    elif echo "$line" | grep -q "VERIFIED:"; then
+        printf "${G}✓ Fixed & verified${NC}"
+    elif echo "$line" | grep -q "WARNING: SSH"; then
+        printf "${Y}⚠ Modem offline${NC}"
+    elif echo "$line" | grep -q "WCDMA"; then
+        printf "${Y}⚠ WCDMA recovery${NC}"
+    elif echo "$line" | grep -q "timed out\|timeout"; then
+        printf "${Y}⚠ MongoDB timeout${NC}"
+    elif echo "$line" | grep -q "ERROR:"; then
+        printf "${R}✗ Error — see logs${NC}"
+    else
+        printf "${Y}⚠ Unknown${NC}"
+    fi
+}
+
 cron_status() {
-    [ -f "$CRON_FILE" ] && echo "active (hourly)" || echo "NOT INSTALLED"
+    if [ -f "$CRON_FILE" ]; then
+        local min
+        min=$(grep -E "^[0-9]+ \* \* \* \* root /data/udm-bandfix/band-fix" "$CRON_FILE" | awk '{print $1}' | head -1)
+        printf 'active (hourly at :%02d)' "${min:-0}"
+    else
+        echo "NOT INSTALLED"
+    fi
 }
 
 ssh_opts() {
@@ -52,11 +80,12 @@ load_config() {
 
 # ── Header ────────────────────────────────────────────────────────────────────
 print_header() {
-    local u5g_ip cron last_run
+    local u5g_ip cron last_run result
     u5g_ip=$(get_ip)
     [ -z "$u5g_ip" ] || [ "$u5g_ip" = "null" ] && u5g_ip="${R}offline${NC}"
     cron=$(cron_status)
     last_run=$(get_last_run)
+    result=$(get_last_result)
 
     clear
     printf "${C}"
@@ -68,6 +97,7 @@ print_header() {
     printf "  ${W}U5G-Max IP:${NC}  ${u5g_ip}\n"
     printf "  ${W}Cron:${NC}        %s\n" "$cron"
     printf "  ${W}Last run:${NC}    %s\n" "$last_run"
+    printf "  ${W}Result:${NC}      ${result}\n"
     printf "${C}"
     printf '╠══════════════════════════════════════════════╣\n'
     printf "${NC}"
