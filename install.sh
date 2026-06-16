@@ -61,9 +61,9 @@ validate_ssh_user() {
 # --- Retrieve SSH credentials from MongoDB ---
 msg "Reading SSH credentials from UniFi MongoDB..."
 SSH_USER=$(mongo --quiet localhost:27117/ace \
-    --eval "print(db.setting.findOne({key:'mgmt'}).x_ssh_username)" 2>/dev/null | tr -d '\r\n') || true
+    --eval "print(db.setting.findOne({key:'mgmt'}).x_ssh_username)" < /dev/null 2>/dev/null | tr -d '\r\n') || true
 SSH_PASS=$(mongo --quiet localhost:27117/ace \
-    --eval "print(db.setting.findOne({key:'mgmt'}).x_ssh_password)" 2>/dev/null | tr -d '\r\n') || true
+    --eval "print(db.setting.findOne({key:'mgmt'}).x_ssh_password)" < /dev/null 2>/dev/null | tr -d '\r\n') || true
 
 [ -z "$SSH_USER" ] || [ "$SSH_USER" = "null" ] && \
     die "Could not read SSH username from MongoDB. Is SSH enabled in UniFi Network?"
@@ -77,7 +77,7 @@ ok "SSH user: $SSH_USER"
 # --- Detect U5G-Max IP ---
 msg "Querying MongoDB for U5G-Max IP..."
 U5G_IP=$(mongo --quiet localhost:27117/ace \
-    --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" 2>/dev/null | tr -d '\r\n') || true
+    --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" < /dev/null 2>/dev/null | tr -d '\r\n') || true
 
 [ -z "$U5G_IP" ] || [ "$U5G_IP" = "null" ] && \
     die "U5G-Max (UMBBE630) not found in MongoDB — is the modem adopted?"

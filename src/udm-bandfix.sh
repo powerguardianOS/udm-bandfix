@@ -24,7 +24,7 @@ pause() { printf "\nPress Enter to continue..."; read -r; }
 
 get_ip() {
     timeout 30 mongo --quiet localhost:27117/ace \
-        --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" 2>/dev/null | tr -d '\r\n' || echo ""
+        --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" < /dev/null 2>/dev/null | tr -d '\r\n' || echo ""
 }
 
 get_last_run() {
@@ -276,7 +276,7 @@ action_reinstall_key() {
     printf "\n${Y}Reinstalling SSH key on U5G-Max ($u5g_ip)...${NC}\n"
     printf "Reading password from MongoDB...\n"
     ssh_pass=$(timeout 30 mongo --quiet localhost:27117/ace \
-        --eval "print(db.setting.findOne({key:'mgmt'}).x_ssh_password)" 2>/dev/null | tr -d '\r\n') || true
+        --eval "print(db.setting.findOne({key:'mgmt'}).x_ssh_password)" < /dev/null 2>/dev/null | tr -d '\r\n') || true
     [ -z "$ssh_pass" ] || [ "$ssh_pass" = "null" ] && { printf "${R}Could not read password from MongoDB.${NC}\n"; pause; return; }
 
     # Re-scan host key (IP may have changed)
