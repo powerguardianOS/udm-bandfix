@@ -168,14 +168,19 @@ ok "band-fix.sh installed: $SCRIPT_DEST"
 
 # --- Install cron job ---
 msg "Installing cron job..."
+# @reboot runs on-boot.sh which: polls for modem, restores cron if wiped, then runs fix.
+# on_boot.d is NOT used — it exists on UDM Pro/SE but not on UCG Fiber.
 cat > "$CRON_FILE" << 'EOF'
-# udm-bandfix: hourly enforcement of Odido NL band restrictions
+# udm-bandfix: Odido NL band enforcement for U5G-Max
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+# On boot: poll until modem online, then apply fix (also restores this cron if wiped)
+@reboot root /data/udm-bandfix/on-boot.sh >> /data/udm-bandfix/band-fix.log 2>&1
+# Hourly check to catch controller-pushed band resets
 0 * * * * root /data/udm-bandfix/band-fix.sh >> /data/udm-bandfix/band-fix.log 2>&1
 EOF
 chmod 644 "$CRON_FILE"
-ok "Cron job installed: $CRON_FILE (runs hourly)"
+ok "Cron job installed: $CRON_FILE (on-boot + hourly)"
 
 # --- Install udm-bandfix CLI command ---
 msg "Installing udm-bandfix command..."
@@ -188,15 +193,16 @@ elif command -v curl >/dev/null 2>&1; then
 fi
 [ -f "$CLI_DEST" ] && chmod +x "$CLI_DEST" && ok "CLI installed: type 'udm-bandfix' to manage"
 
-# --- Install on-boot persistence script ---
-msg "Installing boot persistence..."
-mkdir -p "$ON_BOOT_DIR"
+# --- Install on-boot.sh to /data/ ---
+msg "Installing on-boot.sh..."
+ON_BOOT_DEST="$DATA_DIR/on-boot.sh"
+ON_BOOT_SRC_URL="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/src/on-boot.sh"
 if [ -f "$INSTALLER_DIR/src/on-boot.sh" ]; then
-    cp "$INSTALLER_DIR/src/on-boot.sh" "$ON_BOOT_SCRIPT"
+    cp "$INSTALLER_DIR/src/on-boot.sh" "$ON_BOOT_DEST"
 elif command -v curl >/dev/null 2>&1; then
-    curl -sSL "$ON_BOOT_SRC" -o "$ON_BOOT_SCRIPT" || warn "Could not download on-boot.sh — cron may not survive firmware updates"
+    curl -sSL "$ON_BOOT_SRC_URL" -o "$ON_BOOT_DEST" || warn "Could not download on-boot.sh"
 fi
-[ -f "$ON_BOOT_SCRIPT" ] && chmod +x "$ON_BOOT_SCRIPT" && ok "Boot persistence: $ON_BOOT_SCRIPT"
+[ -f "$ON_BOOT_DEST" ] && chmod +x "$ON_BOOT_DEST" && ok "on-boot.sh installed: $ON_BOOT_DEST"
 
 # --- Initial run ---
 msg ""
@@ -209,8 +215,7 @@ ok "udm-bandfix installed!"
 printf '\n'
 printf '  Config:      %s\n' "$CONFIG"
 printf '  Log file:    %s\n' "$LOG_FILE"
-printf '  Cron:        hourly\n'
-printf '  Boot script: %s\n' "$ON_BOOT_SCRIPT"
+printf '  Cron:        on-boot (2 min delay) + hourly\n'
 printf '  U5G-Max:     %s\n' "$U5G_IP"
 printf '  ICCID:       %s\n' "$ICCID"
 printf '\n'
