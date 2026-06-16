@@ -271,7 +271,7 @@ action_reinstall_key() {
 }
 
 action_update() {
-    local BASE="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main"
+    local BASE="https://raw.githubusercontent.com/royrijpma/udm-bandfix/main"
     local ok=0 fail=0
 
     printf "\n${Y}Updating all udm-bandfix scripts from GitHub...${NC}\n\n"
