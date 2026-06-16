@@ -109,7 +109,7 @@ SSH_STRICT_OPTS="-i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=10 -o StrictHost
 # --- Copy SSH public key to U5G-Max ---
 msg "Installing SSH public key on U5G-Max (${SSH_USER}@${U5G_IP})..."
 
-if ssh $SSH_STRICT_OPTS "${SSH_USER}@${U5G_IP}" "exit 0" 2>/dev/null; then
+if ssh $SSH_STRICT_OPTS "${SSH_USER}@${U5G_IP}" "exit 0" < /dev/null 2>/dev/null; then
     warn "SSH key already installed on U5G-Max — skipping"
 else
     # Write password to temp file — avoids exposing it in the process list via -p
@@ -130,7 +130,7 @@ else
     rm -f "$_PASS_FILE"; _PASS_FILE=""
 
     # Verify keyless SSH works
-    ssh $SSH_STRICT_OPTS "${SSH_USER}@${U5G_IP}" "exit 0" || \
+    ssh $SSH_STRICT_OPTS "${SSH_USER}@${U5G_IP}" "exit 0" < /dev/null || \
         die "Keyless SSH failed after key copy"
 
     ok "SSH key installed successfully"
