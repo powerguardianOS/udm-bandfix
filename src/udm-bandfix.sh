@@ -271,17 +271,35 @@ action_reinstall_key() {
 }
 
 action_update() {
-    local SCRIPT_SRC="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/src/band-fix.sh"
-    printf "\n${Y}Updating band-fix.sh from GitHub...${NC}\n"
-    if command -v curl >/dev/null 2>&1; then
-        curl -sSL "$SCRIPT_SRC" -o "$BAND_FIX.new" && \
-            mv "$BAND_FIX.new" "$BAND_FIX" && \
-            chmod +x "$BAND_FIX" && \
-            printf "${G}✓ Updated.${NC}\n" || \
-            { rm -f "$BAND_FIX.new"; printf "${R}✗ Update failed.${NC}\n"; }
-    else
-        printf "${R}curl not available.${NC}\n"
+    local BASE="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main"
+    local ok=0 fail=0
+
+    printf "\n${Y}Updating all udm-bandfix scripts from GitHub...${NC}\n\n"
+
+    if ! command -v curl >/dev/null 2>&1; then
+        printf "${R}curl not available.${NC}\n"; pause; return
     fi
+
+    _update_file() {
+        local url="$1" dest="$2" mode="$3"
+        if curl -sSL "$url" -o "$dest.new" && mv "$dest.new" "$dest" && chmod "$mode" "$dest"; then
+            printf "  ${G}✓${NC} %s\n" "$dest"
+            ok=$((ok+1))
+        else
+            rm -f "$dest.new"
+            printf "  ${R}✗${NC} %s\n" "$dest"
+            fail=$((fail+1))
+        fi
+    }
+
+    _update_file "$BASE/src/band-fix.sh"    "$DATA_DIR/band-fix.sh"    "+x"
+    _update_file "$BASE/src/on-boot.sh"     "$DATA_DIR/on-boot.sh"     "+x"
+    _update_file "$BASE/uninstall.sh"       "$DATA_DIR/uninstall.sh"   "+x"
+    _update_file "$BASE/src/udm-bandfix.sh" "/usr/local/sbin/udm-bandfix" "+x"
+
+    printf "\n"
+    [ "$fail" -eq 0 ] && printf "${G}✓ All scripts updated.${NC}\n" || \
+        printf "${Y}⚠ %d updated, %d failed.${NC}\n" "$ok" "$fail"
     pause
 }
 
