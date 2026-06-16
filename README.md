@@ -150,91 +150,17 @@ bash /data/udm-bandfix/uninstall.sh
 
 This removes the cron job, all files in `/data/udm-bandfix/`, and the SSH key from the modem. It does **not** revert the band configuration — it will reset to "all" on the next modem reboot anyway.
 
-## Troubleshooting
-
-### "U5G-Max (UMBBE630) not found in MongoDB"
-
-The modem is not adopted or not currently connected. Check **UniFi Network → Devices** and make sure the U5G-Max shows as "Connected".
-
-### "SSH to IP failed — device offline or key not installed"
-
-This is non-fatal; the cron job will retry next hour. If it keeps happening:
-
-```bash
-# Test SSH manually
-SSH_USER=$(grep SSH_USER /data/udm-bandfix/config | cut -d'"' -f2)
-U5G_IP=$(mongo --quiet localhost:27117/ace --eval "print(db.device.findOne({model:'UMBBE630'}).ip)")
-ssh -i /data/udm-bandfix/id_ed25519 "${SSH_USER}@${U5G_IP}"
-```
-
-If that fails, re-run `install.sh` to re-copy the SSH key (happens after modem firmware updates that wipe `/root/.ssh/`).
-
-### "Could not read ICCID"
-
-The SIM may still be initializing. Wait 2–3 minutes after reboot and try again:
-
-```bash
-printf '{"method":"get-sim-state"}' \
-  | ssh -i /data/udm-bandfix/id_ed25519 "${SSH_USER}@${U5G_IP}" uiwwand-ctl
-```
-
-### `{"error":-1}` from set-radio-pref
-
-Wrong ICCID. Check the correct value:
-
-```bash
-printf '{"method":"get-sim-state"}' \
-  | ssh -i /data/udm-bandfix/id_ed25519 "${SSH_USER}@${U5G_IP}" uiwwand-ctl
-```
-
-Then update `/data/udm-bandfix/config`:
-
-```bash
-# Replace the ICCID value
-nano /data/udm-bandfix/config
-```
-
-### Manual band fix (for testing)
-
-SSH into the modem and run directly:
-
-```bash
-ssh -i /data/udm-bandfix/id_ed25519 "${SSH_USER}@${U5G_IP}"
-
-# On the modem — replace <ICCID> with your actual ICCID:
-uiwwand-ctl << 'EOF'
-{"method":"set-radio-pref","params":{"iccid":"<ICCID>","lte_band":"1,3,7,38","nr5g_sa_band":"1,3,7,38,78","nr5g_nsa_band":"1,3,7,38,78"}}
-EOF
-```
-
-A successful response is `{"result":{}}`.
-
-### After a modem firmware update
-
-Firmware updates may wipe `/root/.ssh/authorized_keys` on the modem. Re-run the installer:
-
-```bash
-bash /data/udm-bandfix/install.sh
-```
-
-It will skip key generation (key already exists) and re-copy the public key.
-
-### Cron not running
-
-```bash
-# Verify cron file exists
-cat /etc/cron.d/udm-bandfix
-
-# Test manually
-/data/udm-bandfix/band-fix.sh
-```
-
 ## Security
 
 - SSH uses ed25519 key-based auth only — no passwords stored in files
 - The MongoDB password is read live for the one-time key copy, never written to disk
 - All files in `/data/udm-bandfix/` are root-only (chmod 600 for config and key)
 - The fix only runs read/write over SSH — no arbitrary code execution on the modem
+- All external input (SSH_USER from MongoDB, IP, ICCID) is strictly validated with regex before use — e.g., `SSH_USER` must match `^[a-zA-Z0-9_-]{1,32}$` or the script aborts
+- All values retrieved from the modem are sanitized (stripped of non-printable characters) before logging or further processing
+- Temporary files are created in `/data/udm-bandfix/tmp/` (mode `700`) instead of `/tmp/`, preventing world-readable exposure
+- `known_hosts` updates are atomic: written to a `.tmp` file and moved into place, eliminating race-condition risks
+- Fully POSIX-compliant: avoids bash-specific constructs like `[[ =~ ]]` for compatibility with `/bin/sh`
 
 ## License
 
