@@ -183,8 +183,8 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 # On boot: poll until modem online, then apply fix (also restores this cron if wiped)
 @reboot root /data/udm-bandfix/on-boot.sh >> /data/udm-bandfix/band-fix.log 2>&1
-# Hourly check to catch controller-pushed band resets
-0 * * * * root /data/udm-bandfix/band-fix.sh >> /data/udm-bandfix/band-fix.log 2>&1
+# Hourly check to catch controller-pushed band resets (offset 5min to avoid UniFi controller's own :00 MongoDB activity)
+5 * * * * root /data/udm-bandfix/band-fix.sh >> /data/udm-bandfix/band-fix.log 2>&1
 EOF
 chmod 644 "$CRON_FILE"
 ok "Cron job installed: $CRON_FILE (on-boot + hourly)"
