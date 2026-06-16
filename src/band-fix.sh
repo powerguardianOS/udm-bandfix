@@ -173,6 +173,14 @@ if [ "$RAT_MODE" = "WCDMA" ]; then
     fi
     log "Waiting 60s for modem to reregister..."
     sleep 60
+    # Re-fetch RAT mode
+    RAT_STATUS=$(printf '{"method":"get-radio-status"}' | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null) || true
+    RAT_MODE=$(printf '%s' "$RAT_STATUS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('result',{}).get('rat-mode-active',''))" 2>/dev/null) || true
+    RAT_MODE=$(strip_nonprintable "$RAT_MODE")
+    if [ "$RAT_MODE" = "WCDMA" ]; then
+        log "WCDMA persists after reregistration — modem may need manual intervention, skipping band fix this run"
+        exit 0
+    fi
     # Re-fetch band config
     CURRENT=$(printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$ICCID" \
         | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null) || \

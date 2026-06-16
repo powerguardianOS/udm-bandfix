@@ -23,12 +23,17 @@ From the official spec: *"Het is niet toegestaan om deze banden te gebruiken. De
 
 The U5G-Max (EM9291) supports band selection via `uiwwand-ctl` over SSH, but:
 
-- The UniFi controller **resets band config to "all" on every reboot** (pushes a fresh config to the modem)
-- There is **no band selection option** in the UniFi Network UI
-- The U5G-Max runs on **tmpfs** — any config written to it is lost on reboot
-- The modem's `/etc/persistent/cfg/` has only ~100 bytes free — too small for scripts
+- The UniFi controller intentionally does not expose band steering or band locking options for the U5G-Max — Ubiquiti has stated this is by design, as band selection is considered a carrier-managed setting, not an end-user setting.
+- On every adoption or reconfiguration event, the UniFi controller pushes a full radio config to the modem that resets all band selections back to default (all bands enabled). This happens silently in the background.
+- The modem API (`uiwwand-ctl`) does support `set-radio-pref`, but this interface is undocumented and not exposed through the UniFi UI. There is no supported way to make band selections persistent through the UI.
+- Community requests for band locking in the UniFi forum have been open since 2022 without a committed fix.
+- The U5G-Max runs on tmpfs — any config written to it is lost on reboot, and the `/etc/persistent/cfg/` partition has only ~100 bytes free — too small for scripts.
 
-**Result**: every time the Cloud Gateway or U5G-Max reboots, all bands come back and your Odido connection stops working until the bands are manually reset.
+**Result**: every time the Cloud Gateway or U5G-Max reboots, all bands come back and your Odido connection stops working until the bands are manually reset. This means the only way to enforce Odido-required band restrictions is to run an out-of-band script that monitors and corrects the config after the controller resets it.
+
+## WCDMA Recovery
+
+Sometimes the U5G-Max gets stuck on 3G (WCDMA/UMTS) even when 4G/5G coverage is available. This happens after reboots or when the controller pushes a config reset that disrupts the active radio mode. udm-bandfix detects this automatically via `get-radio-status` on every run. If WCDMA is detected, it sends a mode override (`5gnr,lte`) to kick the modem back to 4G/5G, waits 60 seconds for reregistration, then checks if it succeeded. If the modem is still on WCDMA after 60s, the band fix is skipped for that run and the cron will retry the next hour — this prevents hammering the modem with repeated resets. The event is logged as `"WCDMA detected — forcing reregistration"` in the log file.
 
 ## How it Works
 
