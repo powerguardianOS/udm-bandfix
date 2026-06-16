@@ -124,7 +124,7 @@ else
         -o StrictHostKeyChecking=yes \
         -o UserKnownHostsFile="$KNOWN_HOSTS" \
         -o ConnectTimeout=10 \
-        "${SSH_USER}@${U5G_IP}" 2>/dev/null || \
+        "${SSH_USER}@${U5G_IP}" < /dev/null 2>/dev/null || \
         die "ssh-copy-id failed — check password and connectivity to $U5G_IP"
 
     rm -f "$_PASS_FILE"; _PASS_FILE=""
