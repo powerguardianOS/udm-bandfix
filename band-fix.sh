@@ -102,14 +102,26 @@ _ssh_bg() {
 }
 
 # --- Helper: update known_hosts when IP changes ---
+# ssh-keyscan uses SIGALRM internally for its -T timeout, which does not
+# fire reliably in the UCG Fiber cron container namespace — wrap it in the
+# same background+SIGKILL pattern used for mongo and ssh.
 _update_known_hosts() {
-    local _old="$1" _new="$2"
+    local _old="$1" _new="$2" _rc=0
     log "IP changed ($_old → $_new) — updating known_hosts..."
     if [ -f "$KNOWN_HOSTS" ] && [ -n "$_old" ]; then
         ssh-keygen -R "$_old" -f "$KNOWN_HOSTS" 2>/dev/null || true
     fi
-    ssh-keyscan -T 10 "$_new" > "$TMP_DIR/known_hosts.tmp" 2>/dev/null || \
-        die "Could not scan SSH host key for $_new"
+    : > "$TMP_DIR/known_hosts.tmp"
+    ssh-keyscan -T 10 "$_new" > "$TMP_DIR/known_hosts.tmp" 2>/dev/null &
+    local _kspid=$!
+    ( sleep 15 && kill -9 "$_kspid" 2>/dev/null ) &
+    local _kkpid=$!
+    { wait "$_kspid" 2>/dev/null; } || _rc=$?
+    kill "$_kkpid" 2>/dev/null; wait "$_kkpid" 2>/dev/null || true
+    if [ $_rc -ne 0 ] || [ ! -s "$TMP_DIR/known_hosts.tmp" ]; then
+        rm -f "$TMP_DIR/known_hosts.tmp"
+        die "Could not scan SSH host key for $_new (timeout or no keys returned)"
+    fi
     mv "$TMP_DIR/known_hosts.tmp" "$KNOWN_HOSTS"
     printf '%s\n' "$_new" > "$LAST_IP_FILE"
 }
@@ -212,12 +224,12 @@ _ssh_bg "$_ssh_out" $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_tmpfile
     { rm -f "$_tmpfile" "$_ssh_out"; die "get-radio-pref failed"; }
 CURRENT=$(cat "$_ssh_out")
 rm -f "$_tmpfile" "$_ssh_out"
-log "Current: $CURRENT"
 
 if [ -z "$CURRENT" ]; then
     log "WARNING: uiwwand-ctl returned empty response — modem still initializing, cron will retry"
     exit 0
 fi
+log "Current: $CURRENT"
 
 # --- Fetch current RAT mode ---
 _tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N)-rat-st.json"
@@ -263,6 +275,10 @@ if [ "$RAT_MODE" = "WCDMA" ]; then
         { rm -f "$_tmpfile" "$_ssh_out"; die "get-radio-pref failed"; }
     CURRENT=$(cat "$_ssh_out")
     rm -f "$_tmpfile" "$_ssh_out"
+    if [ -z "$CURRENT" ]; then
+        log "WARNING: uiwwand-ctl returned empty after WCDMA recovery — modem still initializing, cron will retry"
+        exit 0
+    fi
     log "Current: $CURRENT"
 fi
 
