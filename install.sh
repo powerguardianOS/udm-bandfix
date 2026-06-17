@@ -10,7 +10,7 @@ SSH_KEY="$DATA_DIR/id_ed25519"
 KNOWN_HOSTS="$DATA_DIR/known_hosts"
 LOG_FILE="$DATA_DIR/band-fix.log"
 CRON_FILE="/etc/cron.d/udm-bandfix"
-SCRIPT_SRC="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/src/band-fix.sh"
+SCRIPT_SRC="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/band-fix.sh"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -163,8 +163,8 @@ ok "Config written: $CONFIG"
 msg "Installing band-fix.sh..."
 SCRIPT_DEST="$DATA_DIR/band-fix.sh"
 INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" && pwd 2>/dev/null)" || INSTALLER_DIR=""
-if [ -f "$INSTALLER_DIR/src/band-fix.sh" ]; then
-    cp "$INSTALLER_DIR/src/band-fix.sh" "$SCRIPT_DEST"
+if [ -f "$INSTALLER_DIR/band-fix.sh" ]; then
+    cp "$INSTALLER_DIR/band-fix.sh" "$SCRIPT_DEST"
 elif command -v curl >/dev/null 2>&1; then
     curl -sSL "$SCRIPT_SRC" -o "$SCRIPT_DEST" || die "Download of band-fix.sh failed"
 elif command -v wget >/dev/null 2>&1; then
@@ -192,9 +192,9 @@ ok "Cron job installed: $CRON_FILE (on-boot + hourly)"
 # --- Install udm-bandfix CLI command ---
 msg "Installing udm-bandfix command..."
 CLI_DEST="/usr/local/sbin/udm-bandfix"
-CLI_SRC="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/src/udm-bandfix.sh"
-if [ -f "$INSTALLER_DIR/src/udm-bandfix.sh" ]; then
-    cp "$INSTALLER_DIR/src/udm-bandfix.sh" "$CLI_DEST"
+CLI_SRC="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/udm-bandfix.sh"
+if [ -f "$INSTALLER_DIR/udm-bandfix.sh" ]; then
+    cp "$INSTALLER_DIR/udm-bandfix.sh" "$CLI_DEST"
 elif command -v curl >/dev/null 2>&1; then
     curl -sSL "$CLI_SRC" -o "$CLI_DEST" || warn "Could not download udm-bandfix.sh"
 fi
@@ -203,9 +203,9 @@ fi
 # --- Install on-boot.sh to /data/ ---
 msg "Installing on-boot.sh..."
 ON_BOOT_DEST="$DATA_DIR/on-boot.sh"
-ON_BOOT_SRC_URL="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/src/on-boot.sh"
-if [ -f "$INSTALLER_DIR/src/on-boot.sh" ]; then
-    cp "$INSTALLER_DIR/src/on-boot.sh" "$ON_BOOT_DEST"
+ON_BOOT_SRC_URL="https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/on-boot.sh"
+if [ -f "$INSTALLER_DIR/on-boot.sh" ]; then
+    cp "$INSTALLER_DIR/on-boot.sh" "$ON_BOOT_DEST"
 elif command -v curl >/dev/null 2>&1; then
     curl -sSL "$ON_BOOT_SRC_URL" -o "$ON_BOOT_DEST" || warn "Could not download on-boot.sh"
 fi

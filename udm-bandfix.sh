@@ -322,10 +322,10 @@ action_update() {
         fi
     }
 
-    _update_file "$BASE/src/band-fix.sh"    "$DATA_DIR/band-fix.sh"    "+x"
-    _update_file "$BASE/src/on-boot.sh"     "$DATA_DIR/on-boot.sh"     "+x"
-    _update_file "$BASE/uninstall.sh"       "$DATA_DIR/uninstall.sh"   "+x"
-    _update_file "$BASE/src/udm-bandfix.sh" "/usr/local/sbin/udm-bandfix" "+x"
+    _update_file "$BASE/band-fix.sh"    "$DATA_DIR/band-fix.sh"    "+x"
+    _update_file "$BASE/on-boot.sh"     "$DATA_DIR/on-boot.sh"     "+x"
+    _update_file "$BASE/uninstall.sh"   "$DATA_DIR/uninstall.sh"   "+x"
+    _update_file "$BASE/udm-bandfix.sh" "/usr/local/sbin/udm-bandfix" "+x"
 
     printf "\n"
     [ "$fail" -eq 0 ] && printf "${G}✓ All scripts updated.${NC}\n" || \
