@@ -42,9 +42,16 @@ log "Waiting for U5G-Max to appear in MongoDB..."
 _ip_out="$TMP_DIR/on-boot-ip.txt"
 i=1
 while [ $i -le 20 ]; do
-    timeout 30 mongo --quiet localhost:27117/ace \
+    : > "$_ip_out"
+    mongo --quiet --connectTimeoutMS 10000 --socketTimeoutMS 10000 \
+        localhost:27117/ace \
         --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" \
-        < /dev/null > "$_ip_out" 2>/dev/null || true
+        < /dev/null > "$_ip_out" 2>/dev/null &
+    _mongo_pid=$!
+    ( sleep 30 && kill -9 "$_mongo_pid" 2>/dev/null ) &
+    _kpid=$!
+    wait "$_mongo_pid" 2>/dev/null || true
+    kill "$_kpid" 2>/dev/null; wait "$_kpid" 2>/dev/null || true
     IP=$(tr -d '\r\n' < "$_ip_out")
     if [ -n "$IP" ] && [ "$IP" != "null" ] && printf '%s' "$IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
         log "U5G-Max online at $IP — running band-fix..."

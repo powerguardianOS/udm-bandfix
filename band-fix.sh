@@ -85,45 +85,71 @@ source "$CONFIG"
 : "${SSH_USER:?CONFIG missing SSH_USER}"
 validate_ssh_user "$SSH_USER"
 
-# --- Get current U5G-Max IP (changes on reboot) ---
-log "Querying MongoDB for U5G-Max IP..."
-_mongo_out="$TMP_DIR/mongo_ip.txt"
-timeout 30 mongo --quiet localhost:27117/ace \
-    --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" \
-    < /dev/null > "$_mongo_out" 2>/dev/null || true
-U5G_IP=$(tr -d '\r\n' < "$_mongo_out")
-rm -f "$_mongo_out"
-log "DEBUG: mongo done, result='$U5G_IP'"
+# --- Helper: query MongoDB with guaranteed termination (background + SIGKILL) ---
+# `timeout` is unreliable in UCG Fiber cron (no TTY, signals not propagated).
+# Running mongo in background and using explicit kill -9 is portable and reliable.
+_query_mongo_ip() {
+    local _out="$TMP_DIR/mongo_ip.txt"
+    : > "$_out"
+    mongo --quiet --connectTimeoutMS 10000 --socketTimeoutMS 10000 \
+        localhost:27117/ace \
+        --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" \
+        < /dev/null > "$_out" 2>/dev/null &
+    local _pid=$!
+    ( sleep 30 && kill -9 "$_pid" 2>/dev/null ) &
+    local _kpid=$!
+    wait "$_pid" 2>/dev/null || true
+    kill "$_kpid" 2>/dev/null; wait "$_kpid" 2>/dev/null || true
+    tr -d '\r\n' < "$_out"
+    rm -f "$_out"
+}
 
-[ -z "$U5G_IP" ] && die "MongoDB query timed out or failed — U5G-Max IP unavailable"
-[ "$U5G_IP" = "null" ] && die "U5G-Max (UMBBE630) not found in MongoDB — is the modem adopted?"
-
-# Validate IP before using it in any shell command
-validate_ip "$U5G_IP"
-log "U5G-Max IP: $U5G_IP"
-
-# --- Update known_hosts if IP changed ---
-LAST_IP=""
-[ -f "$LAST_IP_FILE" ] && LAST_IP=$(cat "$LAST_IP_FILE")
-
-if [ "$U5G_IP" != "$LAST_IP" ]; then
-    log "IP changed ($LAST_IP → $U5G_IP) — updating known_hosts..."
-    # Atomic known_hosts update
-    if [ -f "$KNOWN_HOSTS" ]; then
-        ssh-keygen -R "$LAST_IP" -f "$KNOWN_HOSTS" 2>/dev/null || true
+# --- Helper: update known_hosts when IP changes ---
+_update_known_hosts() {
+    local _old="$1" _new="$2"
+    log "IP changed ($_old → $_new) — updating known_hosts..."
+    if [ -f "$KNOWN_HOSTS" ] && [ -n "$_old" ]; then
+        ssh-keygen -R "$_old" -f "$KNOWN_HOSTS" 2>/dev/null || true
     fi
-    ssh-keyscan -T 10 "$U5G_IP" > "$TMP_DIR/known_hosts.tmp" 2>/dev/null || \
-        die "Could not scan SSH host key for $U5G_IP"
+    ssh-keyscan -T 10 "$_new" > "$TMP_DIR/known_hosts.tmp" 2>/dev/null || \
+        die "Could not scan SSH host key for $_new"
     mv "$TMP_DIR/known_hosts.tmp" "$KNOWN_HOSTS"
-    printf '%s\n' "$U5G_IP" > "$LAST_IP_FILE"
+    printf '%s\n' "$_new" > "$LAST_IP_FILE"
+}
+
+# --- Get current U5G-Max IP (cache-first: skip mongo on normal cron runs) ---
+LAST_IP=""
+[ -f "$LAST_IP_FILE" ] && LAST_IP=$(tr -d '\r\n' < "$LAST_IP_FILE")
+
+U5G_IP=""
+if printf '%s' "$LAST_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' 2>/dev/null; then
+    U5G_IP="$LAST_IP"
+    log "U5G-Max IP (cached): $U5G_IP"
+else
+    log "No cached IP — querying MongoDB..."
+    U5G_IP=$(_query_mongo_ip)
+    log "MongoDB result: '$U5G_IP'"
+    [ -z "$U5G_IP" ] && die "MongoDB unavailable and no cached IP"
+    [ "$U5G_IP" = "null" ] && die "U5G-Max (UMBBE630) not found in MongoDB — is the modem adopted?"
+    validate_ip "$U5G_IP"
+    _update_known_hosts "" "$U5G_IP"
 fi
 
 SSH_OPTS="-i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS -o ServerAliveInterval=5 -o ServerAliveCountMax=3"
 
-# --- SSH connectivity check ---
+# --- SSH connectivity check (if cached IP fails, refresh via MongoDB) ---
 if ! ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "exit 0" 2>/dev/null; then
-    log "WARNING: SSH to $U5G_IP failed — device offline or key not installed (re-run install.sh)"
-    exit 0  # non-fatal, cron will retry
+    log "SSH failed at $U5G_IP — querying MongoDB for updated IP..."
+    _fresh=$(_query_mongo_ip)
+    if printf '%s' "$_fresh" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' && \
+       [ "$_fresh" != "$U5G_IP" ] && \
+       ssh $SSH_OPTS "${SSH_USER}@${_fresh}" "exit 0" 2>/dev/null; then
+        _update_known_hosts "$U5G_IP" "$_fresh"
+        U5G_IP="$_fresh"
+    else
+        log "WARNING: SSH to U5G-Max failed — device offline or key not installed (re-run install.sh)"
+        exit 0
+    fi
 fi
 
 # --- Fetch ICCID live from modem (not from static config — survives SIM swaps) ---
