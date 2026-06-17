@@ -214,6 +214,11 @@ CURRENT=$(cat "$_ssh_out")
 rm -f "$_tmpfile" "$_ssh_out"
 log "Current: $CURRENT"
 
+if [ -z "$CURRENT" ]; then
+    log "WARNING: uiwwand-ctl returned empty response — modem still initializing, cron will retry"
+    exit 0
+fi
+
 # --- Fetch current RAT mode ---
 _tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N)-rat-st.json"
 _ssh_out="$TMP_DIR/ssh_rat_st.txt"
