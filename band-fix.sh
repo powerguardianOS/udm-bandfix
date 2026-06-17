@@ -118,7 +118,7 @@ if [ "$U5G_IP" != "$LAST_IP" ]; then
     printf '%s\n' "$U5G_IP" > "$LAST_IP_FILE"
 fi
 
-SSH_OPTS="-i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
+SSH_OPTS="-i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS -o ServerAliveInterval=5 -o ServerAliveCountMax=3"
 
 # --- SSH connectivity check ---
 if ! ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "exit 0" 2>/dev/null; then
@@ -128,9 +128,11 @@ fi
 
 # --- Fetch ICCID live from modem (not from static config — survives SIM swaps) ---
 log "Reading ICCID from modem..."
-ICCID=$(printf '{"method":"get-sim-state"}' \
-    | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null \
-    | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['iccid'])" 2>/dev/null) || true
+_tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N)-sim.json"
+printf '%s\n' '{"method":"get-sim-state"}' > "$_tmpfile"
+_sim_out=$(ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_tmpfile" 2>/dev/null) || true
+rm -f "$_tmpfile"
+ICCID=$(printf '%s' "$_sim_out" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['iccid'])" 2>/dev/null) || true
 
 if [ -z "$ICCID" ]; then
     # Fallback to cached ICCID (SIM may still be initializing)
@@ -158,13 +160,18 @@ fi
 
 # --- Fetch current band configuration ---
 log "Fetching current band config..."
-CURRENT=$(printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$ICCID" \
-    | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null) || \
-    die "get-radio-pref failed"
+_tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N)-get.json"
+printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}\n' "$ICCID" > "$_tmpfile"
+CURRENT=$(ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_tmpfile" 2>/dev/null) || \
+    { rm -f "$_tmpfile"; die "get-radio-pref failed"; }
+rm -f "$_tmpfile"
 log "Current: $CURRENT"
 
 # --- Fetch current RAT mode ---
-RAT_STATUS=$(printf '{"method":"get-radio-status"}' | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null) || true
+_tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N)-rat-st.json"
+printf '%s\n' '{"method":"get-radio-status"}' > "$_tmpfile"
+RAT_STATUS=$(ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_tmpfile" 2>/dev/null) || true
+rm -f "$_tmpfile"
 RAT_MODE=$(printf '%s' "$RAT_STATUS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('result',{}).get('rat-mode-active',''))" 2>/dev/null) || true
 RAT_MODE=$(strip_nonprintable "$RAT_MODE")
 
@@ -182,7 +189,10 @@ if [ "$RAT_MODE" = "WCDMA" ]; then
     log "Waiting 60s for modem to reregister..."
     sleep 60
     # Re-fetch RAT mode
-    RAT_STATUS=$(printf '{"method":"get-radio-status"}' | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null) || true
+    _tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N)-rat-st2.json"
+    printf '%s\n' '{"method":"get-radio-status"}' > "$_tmpfile"
+    RAT_STATUS=$(ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_tmpfile" 2>/dev/null) || true
+    rm -f "$_tmpfile"
     RAT_MODE=$(printf '%s' "$RAT_STATUS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('result',{}).get('rat-mode-active',''))" 2>/dev/null) || true
     RAT_MODE=$(strip_nonprintable "$RAT_MODE")
     if [ "$RAT_MODE" = "WCDMA" ]; then
@@ -190,9 +200,11 @@ if [ "$RAT_MODE" = "WCDMA" ]; then
         exit 0
     fi
     # Re-fetch band config
-    CURRENT=$(printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$ICCID" \
-        | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null) || \
-        die "get-radio-pref failed"
+    _tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N)-get2.json"
+    printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}\n' "$ICCID" > "$_tmpfile"
+    CURRENT=$(ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_tmpfile" 2>/dev/null) || \
+        { rm -f "$_tmpfile"; die "get-radio-pref failed"; }
+    rm -f "$_tmpfile"
     log "Current: $CURRENT"
 fi
 
@@ -268,8 +280,10 @@ fi
 
 # --- Verify ---
 log "Verifying..."
-VERIFY=$(printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$ICCID" \
-    | ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" 2>/dev/null)
+_tmpfile="$TMP_DIR/udm-bandfix-$(date +%s%N)-verify.json"
+printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}\n' "$ICCID" > "$_tmpfile"
+VERIFY=$(ssh $SSH_OPTS "${SSH_USER}@${U5G_IP}" "uiwwand-ctl" < "$_tmpfile" 2>/dev/null)
+rm -f "$_tmpfile"
 REMAINING=$(check_compliance "$VERIFY")
 if [ -n "$REMAINING" ]; then
     die "Fix applied but config still non-compliant:$REMAINING"
