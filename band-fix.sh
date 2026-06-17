@@ -88,16 +88,23 @@ _query_mongo_ip() {
 # --- Helper: run SSH with guaranteed termination via background+SIGKILL (20s max) ---
 # Usage: _ssh_bg <outfile> [ssh args...] (stdin from caller via redirect)
 # Output captured to outfile; returns ssh exit code.
+#
+# IMPORTANT: bash redirects background process stdin to /dev/null when job
+# control is disabled (cron, non-interactive). We save the caller's stdin to a
+# tempfile BEFORE backgrounding, then pass it explicitly so ssh/uiwwand-ctl
+# gets the JSON payload.
 _ssh_bg() {
     local _out="$1"; shift
-    local _rc=0
+    local _rc=0 _in="$TMP_DIR/ssh_bg_stdin_$$"
+    cat > "$_in"        # drain caller's stdin NOW (foreground — inherits caller's redirect)
     : > "$_out"
-    ssh "$@" > "$_out" 2>/dev/null &
+    ssh "$@" < "$_in" > "$_out" 2>/dev/null &
     local _pid=$!
     ( sleep 20 && kill -9 "$_pid" 2>/dev/null ) &
     local _kpid=$!
     { wait "$_pid" 2>/dev/null; } || _rc=$?
     kill "$_kpid" 2>/dev/null; wait "$_kpid" 2>/dev/null || true
+    rm -f "$_in"
     return $_rc
 }
 
@@ -139,7 +146,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     log "Another instance is running — exiting"
     exit 0
 fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null; rm -f "$TMP_DIR"/udm-bandfix-* "$TMP_DIR"/mongo_ip.txt "$TMP_DIR"/ssh_*.txt "$TMP_DIR"/known_hosts.tmp' EXIT
+trap 'rmdir "$LOCK_DIR" 2>/dev/null; rm -f "$TMP_DIR"/udm-bandfix-* "$TMP_DIR"/mongo_ip.txt "$TMP_DIR"/ssh_*.txt "$TMP_DIR"/ssh_bg_stdin_* "$TMP_DIR"/known_hosts.tmp' EXIT
 
 # --- Load config ---
 [ -f "$CONFIG" ] || die "Config not found: $CONFIG (run install.sh first)"
