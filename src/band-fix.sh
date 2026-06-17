@@ -5,6 +5,7 @@
 # Forbidden bands (must be disabled): B8, B20, B28, n8, n20, n28
 
 set -euo pipefail
+exec </dev/null
 
 DATA_DIR="/data/udm-bandfix"
 TMP_DIR="$DATA_DIR/tmp"
