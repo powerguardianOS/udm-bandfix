@@ -133,6 +133,83 @@ _update_known_hosts() {
     printf '%s\n' "$_new" > "$LAST_IP_FILE"
 }
 
+# --- Helper: reinstall SSH key using controller credentials (self-heal after modem reboot) ---
+# Modem tmpfs is wiped on reboot: authorized_keys + host keys are lost.
+# This reads the controller SSH password from MongoDB, rescans the host key,
+# and runs ssh-copy-id — same as install.sh does on first install.
+_reinstall_key() {
+    local _ip="$1" _rc=0
+    log "Attempting SSH key reinstall via controller credentials..."
+
+    if ! command -v sshpass >/dev/null 2>&1; then
+        log "sshpass not available — cannot self-heal (re-run install.sh)"
+        return 1
+    fi
+
+    local _pw_out="$TMP_DIR/reinstall_pw.txt"
+    : > "$_pw_out"
+    mongo --quiet --connectTimeoutMS 10000 --socketTimeoutMS 10000 \
+        localhost:27117/ace \
+        --eval "print(db.setting.findOne({key:'mgmt'}).x_ssh_password)" \
+        < /dev/null > "$_pw_out" 2>/dev/null &
+    local _mpid=$!
+    ( sleep 30 && kill -9 "$_mpid" 2>/dev/null ) &
+    local _mkpid=$!
+    { wait "$_mpid" 2>/dev/null; } || true
+    kill "$_mkpid" 2>/dev/null; wait "$_mkpid" 2>/dev/null || true
+    local _pass
+    _pass=$(tr -d '\r\n' < "$_pw_out")
+    rm -f "$_pw_out"
+
+    if [ -z "$_pass" ] || [ "$_pass" = "null" ]; then
+        log "Could not retrieve controller SSH password from MongoDB — cannot self-heal"
+        return 1
+    fi
+
+    log "Rescanning host key for $_ip (modem reboot regenerates host keys on tmpfs)..."
+    : > "$TMP_DIR/reinstall_kh.tmp"
+    ssh-keyscan -T 10 "$_ip" > "$TMP_DIR/reinstall_kh.tmp" 2>/dev/null &
+    local _kspid=$!
+    ( sleep 15 && kill -9 "$_kspid" 2>/dev/null ) &
+    local _kkpid=$!
+    { wait "$_kspid" 2>/dev/null; } || true
+    kill "$_kkpid" 2>/dev/null; wait "$_kkpid" 2>/dev/null || true
+
+    if [ ! -s "$TMP_DIR/reinstall_kh.tmp" ]; then
+        rm -f "$TMP_DIR/reinstall_kh.tmp"
+        log "Host key scan failed — modem unreachable at $_ip"
+        return 1
+    fi
+    mv "$TMP_DIR/reinstall_kh.tmp" "$KNOWN_HOSTS"
+    log "Host key updated"
+
+    local _pf="$TMP_DIR/reinstall_pf_$$"
+    printf '%s' "$_pass" > "$_pf"
+    chmod 600 "$_pf"
+
+    _rc=0
+    sshpass -f "$_pf" ssh-copy-id \
+        -i "${SSH_KEY}.pub" \
+        -o StrictHostKeyChecking=yes \
+        -o UserKnownHostsFile="$KNOWN_HOSTS" \
+        -o ConnectTimeout=10 \
+        "${SSH_USER}@${_ip}" < /dev/null > /dev/null 2>/dev/null &
+    local _scpid=$!
+    ( sleep 30 && kill -9 "$_scpid" 2>/dev/null ) &
+    local _sckpid=$!
+    { wait "$_scpid" 2>/dev/null; } || _rc=$?
+    kill "$_sckpid" 2>/dev/null; wait "$_sckpid" 2>/dev/null || true
+    rm -f "$_pf"
+
+    if [ $_rc -ne 0 ]; then
+        log "ssh-copy-id failed (rc=$_rc) — wrong password or sshd configuration changed"
+        return 1
+    fi
+
+    log "SSH key reinstalled on $_ip"
+    return 0
+}
+
 # --- Log rotation ---
 rotate_log
 
@@ -146,7 +223,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     log "Another instance is running — exiting"
     exit 0
 fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null; rm -f "$TMP_DIR"/udm-bandfix-* "$TMP_DIR"/mongo_ip.txt "$TMP_DIR"/ssh_*.txt "$TMP_DIR"/ssh_bg_stdin_* "$TMP_DIR"/known_hosts.tmp' EXIT
+trap 'rmdir "$LOCK_DIR" 2>/dev/null; rm -f "$TMP_DIR"/udm-bandfix-* "$TMP_DIR"/mongo_ip.txt "$TMP_DIR"/ssh_*.txt "$TMP_DIR"/ssh_bg_stdin_* "$TMP_DIR"/known_hosts.tmp "$TMP_DIR"/reinstall_*' EXIT
 
 # --- Load config ---
 [ -f "$CONFIG" ] || die "Config not found: $CONFIG (run install.sh first)"
@@ -175,24 +252,27 @@ fi
 
 SSH_OPTS="-i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
 
-# --- SSH connectivity check (if cached IP fails, refresh via MongoDB) ---
+# --- SSH connectivity check (if cached IP fails: refresh IP, then self-heal key) ---
 log "Checking SSH connectivity..."
 _chk="$TMP_DIR/ssh_chk.txt"
 if ! _ssh_bg "$_chk" $SSH_OPTS "${SSH_USER}@${U5G_IP}" "exit 0"; then
     log "SSH failed at $U5G_IP — querying MongoDB for updated IP..."
-    _fresh=$(_query_mongo_ip)
-    if printf '%s' "$_fresh" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
-        if [ "$_fresh" != "$U5G_IP" ]; then
-            _update_known_hosts "$U5G_IP" "$_fresh"
-            U5G_IP="$_fresh"
-        fi
-        if ! _ssh_bg "$_chk" $SSH_OPTS "${SSH_USER}@${U5G_IP}" "exit 0"; then
-            log "WARNING: SSH to U5G-Max failed — device offline or key not installed (re-run install.sh)"
+    _fresh=$(_query_mongo_ip) || true
+    if printf '%s' "$_fresh" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' && \
+            [ "$_fresh" != "$U5G_IP" ]; then
+        _update_known_hosts "$U5G_IP" "$_fresh"
+        U5G_IP="$_fresh"
+    fi
+    if ! _ssh_bg "$_chk" $SSH_OPTS "${SSH_USER}@${U5G_IP}" "exit 0"; then
+        if _reinstall_key "$U5G_IP"; then
+            if ! _ssh_bg "$_chk" $SSH_OPTS "${SSH_USER}@${U5G_IP}" "exit 0"; then
+                log "WARNING: SSH to U5G-Max failed even after key reinstall — device offline or network issue"
+                exit 0
+            fi
+        else
+            log "WARNING: SSH to U5G-Max failed — device offline or unreachable"
             exit 0
         fi
-    else
-        log "WARNING: SSH to U5G-Max failed — device offline or key not installed (re-run install.sh)"
-        exit 0
     fi
 fi
 
