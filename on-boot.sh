@@ -43,9 +43,8 @@ _ip_out="$TMP_DIR/on-boot-ip.txt"
 i=1
 while [ $i -le 20 ]; do
     : > "$_ip_out"
-    mongo --quiet --connectTimeoutMS 10000 --socketTimeoutMS 10000 \
-        localhost:27117/ace \
-        --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" \
+    mongo --quiet localhost:27117/ace \
+        --eval 'var d=db.device.findOne({model:"UMBBE630"}); print(d ? d.ip : "null")' \
         < /dev/null > "$_ip_out" 2>/dev/null &
     _mongo_pid=$!
     ( sleep 30 && kill -9 "$_mongo_pid" 2>/dev/null ) &

@@ -71,8 +71,7 @@ _query_mongo_ip() {
     local _out="$TMP_DIR/mongo_ip.txt"
     local _rc=0
     : > "$_out"
-    mongo --quiet --connectTimeoutMS 10000 --socketTimeoutMS 10000 \
-        localhost:27117/ace \
+    mongo --quiet localhost:27117/ace \
         --eval 'var d=db.device.findOne({model:"UMBBE630"}); print(d ? d.ip : "null")' \
         < /dev/null > "$_out" 2>/dev/null &
     local _pid=$!
@@ -159,8 +158,7 @@ _reinstall_key() {
         local _attempt _mpid _mkpid
         for _attempt in 1 2; do
             : > "$_pw_out"
-            mongo --quiet --connectTimeoutMS 10000 --socketTimeoutMS 10000 \
-                localhost:27117/ace \
+            mongo --quiet localhost:27117/ace \
                 --eval 'var d=db.setting.findOne({key:"mgmt"}); print(d ? d.x_ssh_password : "null")' \
                 < /dev/null > "$_pw_out" 2>/dev/null &
             _mpid=$!
