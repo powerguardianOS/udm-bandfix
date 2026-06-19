@@ -73,7 +73,7 @@ _query_mongo_ip() {
     : > "$_out"
     mongo --quiet --connectTimeoutMS 10000 --socketTimeoutMS 10000 \
         localhost:27117/ace \
-        --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" \
+        --eval 'var d=db.device.findOne({model:"UMBBE630"}); print(d ? d.ip : "null")' \
         < /dev/null > "$_out" 2>/dev/null &
     local _pid=$!
     ( sleep 30 && kill -9 "$_pid" 2>/dev/null ) &
@@ -262,6 +262,11 @@ _chk="$TMP_DIR/ssh_chk.txt"
 if ! _ssh_bg "$_chk" $SSH_OPTS "${SSH_USER}@${U5G_IP}" "exit 0"; then
     log "SSH failed at $U5G_IP — querying MongoDB for updated IP..."
     _fresh=$(_query_mongo_ip) || true
+    if [ -z "$_fresh" ] || [ "$_fresh" = "null" ]; then
+        log "MongoDB IP query returned empty — retrying in 10s..."
+        sleep 10
+        _fresh=$(_query_mongo_ip) || true
+    fi
     if printf '%s' "$_fresh" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' && \
             [ "$_fresh" != "$U5G_IP" ]; then
         _update_known_hosts "$U5G_IP" "$_fresh"
