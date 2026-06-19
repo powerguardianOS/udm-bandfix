@@ -1,4 +1,4 @@
-# udm-bandfix
+# u5gmax-bandfix
 
 Automatically enforce Odido NL band restrictions on the UniFi U5G-Max modem — persistently, from the Cloud Gateway.
 
@@ -33,18 +33,18 @@ The U5G-Max (EM9291) supports band selection via `uiwwand-ctl` over SSH, but:
 
 ## WCDMA Recovery
 
-Sometimes the U5G-Max gets stuck on 3G (WCDMA/UMTS) even when 4G/5G coverage is available. This happens after reboots or when the controller pushes a config reset that disrupts the active radio mode. udm-bandfix detects this automatically via `get-radio-status` on every run. If WCDMA is detected, it sends a mode override (`5gnr,lte`) to kick the modem back to 4G/5G, waits 60 seconds for reregistration, then checks if it succeeded. If the modem is still on WCDMA after 60s, the band fix is skipped for that run and the cron will retry the next hour — this prevents hammering the modem with repeated resets. The event is logged as `"WCDMA detected — forcing reregistration"` in the log file.
+Sometimes the U5G-Max gets stuck on 3G (WCDMA/UMTS) even when 4G/5G coverage is available. This happens after reboots or when the controller pushes a config reset that disrupts the active radio mode. u5gmax-bandfix detects this automatically via `get-radio-status` on every run. If WCDMA is detected, it sends a mode override (`5gnr,lte`) to kick the modem back to 4G/5G, waits 60 seconds for reregistration, then checks if it succeeded. If the modem is still on WCDMA after 60s, the band fix is skipped for that run and the cron will retry the next hour — this prevents hammering the modem with repeated resets. The event is logged as `"WCDMA detected — forcing reregistration"` in the log file.
 
 ## How it Works
 
-udm-bandfix runs as a cron job **on the Cloud Gateway** (not on the modem). Every hour it:
+u5gmax-bandfix runs as a cron job **on the Cloud Gateway** (not on the modem). Every hour it:
 
 1. Looks up the current U5G-Max IP in the UniFi MongoDB database (the IP is a dynamic public 5G WAN address that changes on reboot)
 2. Connects over SSH using a persistent key pair stored in `/data/`
 3. Reads the current band config via `uiwwand-ctl`
 4. Compares it against the exact Odido specification
 5. If it doesn't match → applies the correct configuration
-6. Verifies the result and logs everything to `/data/udm-bandfix/band-fix.log`
+6. Verifies the result and logs everything to `/data/u5gmax-bandfix/band-fix.log`
 
 ```
 Cloud Gateway (/data/ persistent)
@@ -94,25 +94,25 @@ The ICCID of the active SIM is required by `uiwwand-ctl set-radio-pref`. It's re
 ## Installation
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/powerguardianOS/udm-bandfix/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/powerguardianOS/u5gmax-bandfix/main/install.sh | bash
 ```
 
 Run as root on the Cloud Gateway. The installer will:
 
 1. Read the SSH username and password from MongoDB (no manual input needed)
 2. Detect the U5G-Max IP from MongoDB
-3. Generate an SSH key pair at `/data/udm-bandfix/id_ed25519`
+3. Generate an SSH key pair at `/data/u5gmax-bandfix/id_ed25519`
 4. Copy the public key to the U5G-Max (uses the MongoDB password — one time only)
 5. Read the SIM ICCID from the modem and cache it
-6. Install `/data/udm-bandfix/band-fix.sh`
-7. Create `/etc/cron.d/udm-bandfix` (runs hourly)
+6. Install `/data/u5gmax-bandfix/band-fix.sh`
+7. Create `/etc/cron.d/u5gmax-bandfix` (runs hourly)
 8. Apply the fix immediately and show the result
 
 ### Local install (from cloned repo)
 
 ```bash
-git clone https://github.com/powerguardianOS/udm-bandfix
-cd udm-bandfix
+git clone https://github.com/powerguardianOS/u5gmax-bandfix
+cd u5gmax-bandfix
 bash install.sh
 ```
 
@@ -121,24 +121,24 @@ bash install.sh
 ### Check logs
 
 ```bash
-tail -f /data/udm-bandfix/band-fix.log
+tail -f /data/u5gmax-bandfix/band-fix.log
 ```
 
 ### Run manually
 
 ```bash
-/data/udm-bandfix/band-fix.sh
+/data/u5gmax-bandfix/band-fix.sh
 ```
 
 ### Verify band configuration on the modem
 
 ```bash
 # From the Cloud Gateway
-ICCID=$(grep ICCID /data/udm-bandfix/config | cut -d'"' -f2)
+ICCID=$(grep ICCID /data/u5gmax-bandfix/config | cut -d'"' -f2)
 U5G_IP=$(mongo --quiet localhost:27117/ace --eval "print(db.device.findOne({model:'UMBBE630'}).ip)")
-SSH_USER=$(grep SSH_USER /data/udm-bandfix/config | cut -d'"' -f2)
+SSH_USER=$(grep SSH_USER /data/u5gmax-bandfix/config | cut -d'"' -f2)
 printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$ICCID" \
-  | ssh -i /data/udm-bandfix/id_ed25519 "${SSH_USER}@${U5G_IP}" uiwwand-ctl
+  | ssh -i /data/u5gmax-bandfix/id_ed25519 "${SSH_USER}@${U5G_IP}" uiwwand-ctl
 ```
 
 Expected output (Odido-compliant):
@@ -150,20 +150,20 @@ Expected output (Odido-compliant):
 ## Uninstall
 
 ```bash
-bash /data/udm-bandfix/uninstall.sh
+bash /data/u5gmax-bandfix/uninstall.sh
 ```
 
-This removes the cron job, all files in `/data/udm-bandfix/`, and the SSH key from the modem. It does **not** revert the band configuration — it will reset to "all" on the next modem reboot anyway.
+This removes the cron job, all files in `/data/u5gmax-bandfix/`, and the SSH key from the modem. It does **not** revert the band configuration — it will reset to "all" on the next modem reboot anyway.
 
 ## Security
 
-- SSH uses ed25519 key-based auth only — no passwords stored in files
-- The MongoDB password is read live for the one-time key copy, never written to disk
-- All files in `/data/udm-bandfix/` are root-only (chmod 600 for config and key)
+- SSH uses ed25519 key-based auth only — no passwords used after install
+- The MongoDB SSH password is cached in `/data/u5gmax-bandfix/config` (mode `600`, root-only) to enable self-healing after modem reboots without requiring MongoDB access
+- All files in `/data/u5gmax-bandfix/` are root-only (chmod 600 for config and key)
 - The fix only runs read/write over SSH — no arbitrary code execution on the modem
 - All external input (SSH_USER from MongoDB, IP, ICCID) is strictly validated with regex before use — e.g., `SSH_USER` must match `^[a-zA-Z0-9_-]{1,32}$` or the script aborts
 - All values retrieved from the modem are sanitized (stripped of non-printable characters) before logging or further processing
-- Temporary files are created in `/data/udm-bandfix/tmp/` (mode `700`) instead of `/tmp/`, preventing world-readable exposure
+- Temporary files are created in `/data/u5gmax-bandfix/tmp/` (mode `700`) instead of `/tmp/`, preventing world-readable exposure
 - `known_hosts` updates are atomic: written to a `.tmp` file and moved into place, eliminating race-condition risks
 - Fully POSIX-compliant: avoids bash-specific constructs like `[[ =~ ]]` for compatibility with `/bin/sh`
 
