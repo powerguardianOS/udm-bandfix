@@ -301,7 +301,7 @@ action_reinstall_key() {
 }
 
 action_update() {
-    local BASE="https://raw.githubusercontent.com/powerguardianOS/u5gmax-bandfix/main"
+    local BASE="https://raw.githubusercontent.com/royrijpma/u5gmax-bandfix/main"
     local ok=0 fail=0
 
     printf "\n${Y}Updating all u5gmax-bandfix scripts from GitHub...${NC}\n\n"

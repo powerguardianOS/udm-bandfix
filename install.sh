@@ -1,6 +1,6 @@
 #!/bin/bash
 # u5gmax-bandfix installer
-# Usage: curl -sSL https://raw.githubusercontent.com/powerguardianOS/u5gmax-bandfix/main/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/royrijpma/u5gmax-bandfix/main/install.sh | bash
 
 set -euo pipefail
 
@@ -10,7 +10,7 @@ SSH_KEY="$DATA_DIR/id_ed25519"
 KNOWN_HOSTS="$DATA_DIR/known_hosts"
 LOG_FILE="$DATA_DIR/band-fix.log"
 CRON_FILE="/etc/cron.d/u5gmax-bandfix"
-SCRIPT_SRC="https://raw.githubusercontent.com/powerguardianOS/u5gmax-bandfix/main/band-fix.sh"
+SCRIPT_SRC="https://raw.githubusercontent.com/royrijpma/u5gmax-bandfix/main/band-fix.sh"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -193,7 +193,7 @@ ok "Cron job installed: $CRON_FILE (on-boot + hourly)"
 # --- Install u5gmax-bandfix CLI command ---
 msg "Installing u5gmax-bandfix command..."
 CLI_DEST="/usr/local/sbin/u5gmax-bandfix"
-CLI_SRC="https://raw.githubusercontent.com/powerguardianOS/u5gmax-bandfix/main/u5gmax-bandfix.sh"
+CLI_SRC="https://raw.githubusercontent.com/royrijpma/u5gmax-bandfix/main/u5gmax-bandfix.sh"
 if [ -f "$INSTALLER_DIR/u5gmax-bandfix.sh" ]; then
     cp "$INSTALLER_DIR/u5gmax-bandfix.sh" "$CLI_DEST"
 elif command -v curl >/dev/null 2>&1; then
@@ -204,7 +204,7 @@ fi
 # --- Install on-boot.sh to /data/ ---
 msg "Installing on-boot.sh..."
 ON_BOOT_DEST="$DATA_DIR/on-boot.sh"
-ON_BOOT_SRC_URL="https://raw.githubusercontent.com/powerguardianOS/u5gmax-bandfix/main/on-boot.sh"
+ON_BOOT_SRC_URL="https://raw.githubusercontent.com/royrijpma/u5gmax-bandfix/main/on-boot.sh"
 if [ -f "$INSTALLER_DIR/on-boot.sh" ]; then
     cp "$INSTALLER_DIR/on-boot.sh" "$ON_BOOT_DEST"
 elif command -v curl >/dev/null 2>&1; then
@@ -215,7 +215,7 @@ fi
 # --- Install uninstall.sh to /data/ ---
 msg "Installing uninstall.sh..."
 UNINSTALL_DEST="$DATA_DIR/uninstall.sh"
-UNINSTALL_SRC_URL="https://raw.githubusercontent.com/powerguardianOS/u5gmax-bandfix/main/uninstall.sh"
+UNINSTALL_SRC_URL="https://raw.githubusercontent.com/royrijpma/u5gmax-bandfix/main/uninstall.sh"
 if [ -f "$INSTALLER_DIR/uninstall.sh" ]; then
     cp "$INSTALLER_DIR/uninstall.sh" "$UNINSTALL_DEST"
 elif command -v curl >/dev/null 2>&1; then
