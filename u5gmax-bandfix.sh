@@ -143,8 +143,24 @@ action_band_status() {
     [ -z "$iccid" ] && { printf "${R}Could not read ICCID.${NC}\n"; pause; return; }
 
     current=$(printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$iccid" \
-        | ssh $(ssh_opts) "${SSH_USER}@${u5g_ip}" "uiwwand-ctl" 2>/dev/null) || \
-        { printf "${R}Could not reach U5G-Max via SSH.${NC}\n"; pause; return; }
+        | ssh $(ssh_opts) "${SSH_USER}@${u5g_ip}" "uiwwand-ctl" 2>/dev/null) || true
+
+    if [ -z "$current" ]; then
+        printf "${Y}U5G-Max not reachable — waiting for it to come online (max 5 min)...${NC}\n"
+        local attempt=1
+        while [ "$attempt" -le 10 ]; do
+            printf "  Attempt %d/10 — retrying in 30s...\r" "$attempt"
+            sleep 30
+            u5g_ip=$(get_ip)
+            [ -n "$u5g_ip" ] && [ "$u5g_ip" != "null" ] || { attempt=$((attempt+1)); continue; }
+            current=$(printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$iccid" \
+                | ssh $(ssh_opts) "${SSH_USER}@${u5g_ip}" "uiwwand-ctl" 2>/dev/null) || true
+            [ -n "$current" ] && break
+            attempt=$((attempt+1))
+        done
+        [ -z "$current" ] && { printf "\n${R}U5G-Max did not come online within 5 minutes.${NC}\n"; pause; return; }
+        printf "\n${G}U5G-Max online at %s${NC}\n" "$u5g_ip"
+    fi
 
     printf "\n${W}ICCID:${NC} %s\n\n" "$iccid"
 
