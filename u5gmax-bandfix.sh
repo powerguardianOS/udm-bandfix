@@ -401,10 +401,11 @@ action_update() {
         fi
     }
 
-    _update_file "$BASE/band-fix.sh"    "$DATA_DIR/band-fix.sh"    "+x"
-    _update_file "$BASE/on-boot.sh"     "$DATA_DIR/on-boot.sh"     "+x"
-    _update_file "$BASE/uninstall.sh"   "$DATA_DIR/uninstall.sh"   "+x"
-    _update_file "$BASE/u5gmax-bandfix.sh" "/usr/local/sbin/u5gmax-bandfix" "+x"
+    _update_file "$BASE/band-fix.sh"       "$DATA_DIR/band-fix.sh"              "+x"
+    _update_file "$BASE/on-boot.sh"        "$DATA_DIR/on-boot.sh"               "+x"
+    _update_file "$BASE/uninstall.sh"      "$DATA_DIR/uninstall.sh"             "+x"
+    _update_file "$BASE/u5gmax-bandfix.sh" "$DATA_DIR/u5gmax-bandfix.sh"        "+x"
+    _update_file "$BASE/u5gmax-bandfix.sh" "/usr/local/sbin/u5gmax-bandfix"     "+x"
 
     printf "\n"
     if [ "$fail" -eq 0 ]; then

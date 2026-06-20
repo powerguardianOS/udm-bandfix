@@ -35,6 +35,24 @@ EOF
     log "Cron job restored"
 fi
 
+# Restore CLI command if wiped by a firmware update
+CLI_DEST="/usr/local/sbin/u5gmax-bandfix"
+CLI_SRC="/data/u5gmax-bandfix/u5gmax-bandfix.sh"
+if [ ! -f "$CLI_DEST" ]; then
+    log "CLI command missing — restoring..."
+    if [ -f "$CLI_SRC" ]; then
+        cp "$CLI_SRC" "$CLI_DEST"
+        chmod +x "$CLI_DEST"
+        log "CLI restored from $CLI_SRC"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -sSL "https://raw.githubusercontent.com/royrijpma/u5gmax-bandfix/main/u5gmax-bandfix.sh" \
+            -o "$CLI_DEST" 2>/dev/null && chmod +x "$CLI_DEST" && \
+            log "CLI restored from GitHub" || log "CLI restore from GitHub failed"
+    else
+        log "CLI restore failed — no local copy and no curl"
+    fi
+fi
+
 # Poll MongoDB until U5G-Max appears (max 10 min — modem may boot slower than gateway)
 # Uses tempfile instead of pipeline: mongo 3.6 hangs in pipelines without a TTY even
 # with < /dev/null, because it keeps its stdout-end of the pipe open indefinitely.
