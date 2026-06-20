@@ -12,7 +12,6 @@ KNOWN_HOSTS="$DATA_DIR/known_hosts"
 LOG_FILE="$DATA_DIR/band-fix.log"
 CRON_FILE="/etc/cron.d/u5gmax-bandfix"
 BAND_FIX="$DATA_DIR/band-fix.sh"
-mkdir -p "$DATA_DIR/tmp" && chmod 700 "$DATA_DIR/tmp"
 
 # Colors
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'
@@ -205,8 +204,7 @@ action_band_status() {
 
     printf "\n${W}ICCID:${NC} %s\n\n" "$iccid"
 
-    local _tmpresult; _tmpresult=$(mktemp "$DATA_DIR/tmp/.status-XXXXXX")
-    python3 - "$current" << PYEOF > "$_tmpresult"
+    python3 - "$current" << 'PYEOF'
 import json, sys
 
 REQUIRED = {
@@ -250,14 +248,10 @@ except Exception as e:
     print(f"Parse error: {e}")
     ok = False
 
-import sys as _sys
-with open("$_tmpresult.ok", "w") as f:
-    f.write("1" if ok else "0")
+sys.exit(0 if ok else 1)
 PYEOF
-    cat "$_tmpresult"
-    local _ok; _ok=$(cat "$_tmpresult.ok" 2>/dev/null || echo "0")
-    rm -f "$_tmpresult" "$_tmpresult.ok"
-    if [ "$_ok" = "0" ]; then
+    local _pyrc=$?
+    if [ "$_pyrc" -ne 0 ]; then
         read -r -p "  Bands are non-compliant. Apply Odido fix now? [Y/n] " _confirm
         case "${_confirm:-Y}" in
             [Yy]|"") bash "$BAND_FIX" && printf "\n${G}✓ Fix applied.${NC}\n" || printf "\n${R}✗ Fix failed — see logs.${NC}\n" ;;
