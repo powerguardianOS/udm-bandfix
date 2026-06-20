@@ -14,6 +14,7 @@ Automatically enforce Odido NL band restrictions on the UniFi U5G-Max modem — 
 - **Interactive CLI** (`u5gmax-bandfix`): menu with force check, band status, edit bands, logs, key reinstall, update, uninstall
 - **Band status with fix prompt**: option 2 detects non-compliant bands and offers to fix immediately
 - **Auto-update**: option 6 downloads latest scripts from GitHub and exits cleanly
+- **CLI auto-restore after firmware update**: `on-boot.sh` restores `/usr/local/sbin/u5gmax-bandfix` from local `/data/` copy if wiped by a UniFi OS update
 - **WCDMA recovery**: detects 3G fallback and forces reregistration to 4G/5G
 
 ### v1.0.0 (2026-06-16)
