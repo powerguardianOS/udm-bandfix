@@ -148,7 +148,7 @@ action_band_status() {
             --eval 'var s=db.setting.findOne({key:"mgmt"}); print(s ? s.x_ssh_password : "null")' \
             < /dev/null 2>/dev/null | tr -d '\r\n') || true
         [ -z "$_pass" ] || [ "$_pass" = "null" ] && return 1
-        local _pf; _pf=$(mktemp "$DATA_DIR/tmp/.cli-pw-XXXXXX")
+        local _pf; _pf=$(mktemp /tmp/.cli-pw-XXXXXX)
         chmod 600 "$_pf"
         printf '%s' "$_pass" > "$_pf"
         sshpass -f "$_pf" ssh-copy-id \
