@@ -204,7 +204,8 @@ action_band_status() {
 
     printf "\n${W}ICCID:${NC} %s\n\n" "$iccid"
 
-    python3 - "$current" << 'PYEOF'
+    local compliant
+    compliant=$(python3 - "$current" << 'PYEOF'
 import json, sys
 
 REQUIRED = {
@@ -219,6 +220,7 @@ RED   = "\033[0;31m"
 BOLD  = "\033[1m"
 NC    = "\033[0m"
 
+ok = True
 try:
     data = json.loads(sys.argv[1])
     result = data.get("result", {})
@@ -239,15 +241,29 @@ try:
             status = f"{GREEN}✓ Odido-compliant{NC}"
         elif forbidden_present:
             status = f"{RED}✗ FORBIDDEN BANDS ACTIVE: {sorted(forbidden_present)}{NC}"
+            ok = False
         else:
             status = f"{RED}✗ Non-compliant{NC}"
+            ok = False
 
         print(f"  {BOLD}{labels[key]}:{NC} {val or '(empty)'}")
         print(f"  {'':15}  → {status}")
         print()
 except Exception as e:
     print(f"Parse error: {e}")
+    ok = False
+
+print("OK" if ok else "NOK")
 PYEOF
+)
+    printf '%s\n' "$compliant" | grep -v "^OK$\|^NOK$"
+    if printf '%s\n' "$compliant" | grep -q "^NOK$"; then
+        read -r -p "  Bands are non-compliant. Apply Odido fix now? [Y/n] " _confirm
+        case "${_confirm:-Y}" in
+            [Yy]|"") bash "$BAND_FIX" && printf "\n${G}✓ Fix applied.${NC}\n" || printf "\n${R}✗ Fix failed — see logs.${NC}\n" ;;
+            *) printf "Skipped.\n" ;;
+        esac
+    fi
     pause
 }
 
