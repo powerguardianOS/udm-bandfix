@@ -122,8 +122,8 @@ After installation, type `u5gmax-bandfix` in the shell to open the interactive m
 
 ```
 ╔══════════════════════════════════════════════╗
-║          u5gmax-bandfix  v1.1.0              ║
-║     Odido NL Band Fix — UniFi U5G-Max        ║
+║            u5gmax-bandfix  v1.1.0            ║
+║      Odido NL Band Fix — UniFi U5G-Max       ║
 ╠══════════════════════════════════════════════╣
   U5G-Max IP:  178.x.x.x
   Cron:        active

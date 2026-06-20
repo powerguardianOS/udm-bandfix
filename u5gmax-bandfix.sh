@@ -90,8 +90,8 @@ print_header() {
     clear
     printf "${C}"
     printf '╔══════════════════════════════════════════════╗\n'
-    printf '║          u5gmax-bandfix  v%-5s                 ║\n' "$VERSION"
-    printf '║     Odido NL Band Fix — UniFi U5G-Max       ║\n'
+    printf '║            u5gmax-bandfix  v%-5s            ║\n' "$VERSION"
+    printf '║      Odido NL Band Fix — UniFi U5G-Max       ║\n'
     printf '╠══════════════════════════════════════════════╣\n'
     printf "${NC}"
     printf "  ${W}U5G-Max IP:${NC}  ${u5g_ip}\n"
