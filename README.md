@@ -208,7 +208,7 @@ This removes the cron job, all files in `/data/u5gmax-bandfix/`, and the SSH key
 - The fix only runs read/write over SSH — no arbitrary code execution on the modem
 - All external input (SSH_USER from MongoDB, IP, ICCID) is strictly validated with regex before use — e.g., `SSH_USER` must match `^[a-zA-Z0-9_-]{1,32}$` or the script aborts
 - All values retrieved from the modem are sanitized (stripped of non-printable characters) before logging or further processing
-- Temporary files are created in `/data/u5gmax-bandfix/tmp/` (mode `700`) instead of `/tmp/`, preventing world-readable exposure
+- Temporary files in `band-fix.sh` are created in `/data/u5gmax-bandfix/tmp/` (mode `700`, root-only); short-lived CLI tempfiles use `/tmp/` and are removed immediately after use
 - `known_hosts` updates are atomic: written to a `.tmp` file and moved into place, eliminating race-condition risks
 - Fully POSIX-compliant: avoids bash-specific constructs like `[[ =~ ]]` for compatibility with `/bin/sh`
 
