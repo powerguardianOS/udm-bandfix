@@ -141,24 +141,51 @@ action_band_status() {
         ssh $(ssh_opts) "${SSH_USER}@${_ip}" "exit 0" < /dev/null 2>/dev/null
     }
 
+    _reinstall_ssh_key() {
+        local _ip="$1"
+        local _pass; _pass=$(. "$CONFIG" 2>/dev/null; printf '%s' "${SSH_PASS:-}")
+        [ -z "$_pass" ] && _pass=$(mongo --quiet localhost:27117/ace \
+            --eval 'var s=db.setting.findOne({key:"mgmt"}); print(s ? s.x_ssh_password : "null")' \
+            < /dev/null 2>/dev/null | tr -d '\r\n') || true
+        [ -z "$_pass" ] || [ "$_pass" = "null" ] && return 1
+        local _pf; _pf=$(mktemp "$DATA_DIR/tmp/.cli-pw-XXXXXX")
+        chmod 600 "$_pf"
+        printf '%s' "$_pass" > "$_pf"
+        sshpass -f "$_pf" ssh-copy-id \
+            -i "$SSH_KEY.pub" \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$KNOWN_HOSTS" \
+            -o ConnectTimeout=10 \
+            "${SSH_USER}@${_ip}" < /dev/null 2>/dev/null
+        local _rc=$?
+        rm -f "$_pf"
+        return $_rc
+    }
+
     if ! _try_ssh "$u5g_ip"; then
         printf "${Y}SSH failed — rescanning host key (modem may have rebooted)...${NC}\n"
         ssh-keyscan -T 10 "$u5g_ip" > "$KNOWN_HOSTS" 2>/dev/null || true
         if ! _try_ssh "$u5g_ip"; then
-            printf "${Y}Still unreachable — waiting for modem to come online (max 5 min)...${NC}\n"
-            local attempt=1
-            while [ "$attempt" -le 10 ]; do
-                printf "  Attempt %d/10 — retrying in 30s...\r" "$attempt"
-                sleep 30
-                u5g_ip=$(get_ip)
-                [ -n "$u5g_ip" ] && [ "$u5g_ip" != "null" ] || { attempt=$((attempt+1)); continue; }
-                ssh-keyscan -T 10 "$u5g_ip" > "$KNOWN_HOSTS" 2>/dev/null || true
-                _try_ssh "$u5g_ip" && break
-                attempt=$((attempt+1))
-            done
-            if ! _try_ssh "$u5g_ip"; then
-                printf "\n${R}U5G-Max did not come online within 5 minutes.${NC}\n"
-                pause; return
+            printf "${Y}SSH key lost (modem tmpfs wiped) — reinstalling key...${NC}\n"
+            if _reinstall_ssh_key "$u5g_ip" && _try_ssh "$u5g_ip"; then
+                printf "${G}SSH key reinstalled successfully.${NC}\n"
+            else
+                printf "${Y}Still unreachable — waiting for modem to come online (max 5 min)...${NC}\n"
+                local attempt=1
+                while [ "$attempt" -le 10 ]; do
+                    printf "  Attempt %d/10 — retrying in 30s...\r" "$attempt"
+                    sleep 30
+                    u5g_ip=$(get_ip)
+                    [ -n "$u5g_ip" ] && [ "$u5g_ip" != "null" ] || { attempt=$((attempt+1)); continue; }
+                    ssh-keyscan -T 10 "$u5g_ip" > "$KNOWN_HOSTS" 2>/dev/null || true
+                    _reinstall_ssh_key "$u5g_ip" 2>/dev/null || true
+                    _try_ssh "$u5g_ip" && break
+                    attempt=$((attempt+1))
+                done
+                if ! _try_ssh "$u5g_ip"; then
+                    printf "\n${R}U5G-Max did not come online within 5 minutes.${NC}\n"
+                    pause; return
+                fi
             fi
         fi
         printf "${G}Connected to %s${NC}\n" "$u5g_ip"
