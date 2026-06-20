@@ -342,9 +342,8 @@ action_update() {
 
     printf "\n"
     if [ "$fail" -eq 0 ]; then
-        printf "${G}✓ All scripts updated. Restarting...${NC}\n"
-        sleep 1
-        exec /usr/local/sbin/u5gmax-bandfix
+        printf "${G}✓ All scripts updated.${NC}\n"
+        exit 0
     else
         printf "${Y}⚠ %d updated, %d failed.${NC}\n" "$ok" "$fail"
         pause
