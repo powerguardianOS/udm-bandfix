@@ -341,9 +341,14 @@ action_update() {
     _update_file "$BASE/u5gmax-bandfix.sh" "/usr/local/sbin/u5gmax-bandfix" "+x"
 
     printf "\n"
-    [ "$fail" -eq 0 ] && printf "${G}✓ All scripts updated.${NC}\n" || \
+    if [ "$fail" -eq 0 ]; then
+        printf "${G}✓ All scripts updated. Restarting...${NC}\n"
+        sleep 1
+        exec /usr/local/sbin/u5gmax-bandfix
+    else
         printf "${Y}⚠ %d updated, %d failed.${NC}\n" "$ok" "$fail"
-    pause
+        pause
+    fi
 }
 
 action_uninstall() {
