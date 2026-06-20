@@ -204,6 +204,7 @@ action_band_status() {
 
     printf "\n${W}ICCID:${NC} %s\n\n" "$iccid"
 
+    mkdir -p "$DATA_DIR/tmp"
     local _tmpresult; _tmpresult=$(mktemp "$DATA_DIR/tmp/.status-XXXXXX")
     python3 - "$current" << PYEOF > "$_tmpresult"
 import json, sys
