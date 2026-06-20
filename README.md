@@ -122,7 +122,13 @@ After installation, type `u5gmax-bandfix` in the shell to open the interactive m
 
 ```
 ╔══════════════════════════════════════════════╗
-║       u5gmax-bandfix — U5G-Max Band Fix      ║
+║          u5gmax-bandfix  v1.1.0              ║
+║     Odido NL Band Fix — UniFi U5G-Max        ║
+╠══════════════════════════════════════════════╣
+  U5G-Max IP:  178.x.x.x
+  Cron:        active
+  Last run:    2026-06-20 09:05:01
+  Result:      OK — bands match Odido spec
 ╠══════════════════════════════════════════════╣
   1) Force band check now
   2) Show current band status
