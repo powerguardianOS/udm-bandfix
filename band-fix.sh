@@ -412,6 +412,10 @@ try:
         "nr5g_nsa_band": parse_bands(sys.argv[4]),
     }
     mismatches = []
+    # Check mode — must be exactly "5gnr,lte"
+    actual_mode = result.get("mode", "")
+    if actual_mode != "5gnr,lte":
+        mismatches.append(f"  mode: is '{actual_mode}', must be '5gnr,lte'")
     for key, req_bands in required.items():
         actual_str = result.get(key, "")
         actual_bands = parse_bands(actual_str) if actual_str else set()
@@ -447,7 +451,7 @@ done <<< "$MISMATCHES"
 log "Applying Odido-spec band configuration..."
 
 PAYLOAD=$(printf \
-    '{"method":"set-radio-pref","params":{"iccid":"%s","lte_band":"%s","nr5g_sa_band":"%s","nr5g_nsa_band":"%s"}}' \
+    '{"method":"set-radio-pref","params":{"iccid":"%s","mode":"5gnr,lte","lte_band":"%s","nr5g_sa_band":"%s","nr5g_nsa_band":"%s"}}' \
     "$ICCID" "$LTE_REQUIRED" "$NR5G_SA_REQUIRED" "$NR5G_NSA_REQUIRED")
 
 _tmpfile="$TMP_DIR/u5gmax-bandfix-$(date +%s%N).json"
