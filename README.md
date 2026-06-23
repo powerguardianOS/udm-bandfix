@@ -14,7 +14,8 @@ The modem is detected automatically by searching for any `UMBBE*` model in Mongo
 
 ### v1.2.0 (2026-06-24)
 - **Multi-ISP profile support**: install.sh asks which ISP during setup; profile is stored in config and used by all scripts
-- **Supported profiles**: Odido NL (UMBBE630) and Free Mobile FR (UMBBE631)
+- **Supported profiles**: Odido NL and Free Mobile FR
+- **Automatic modem detection**: U5G-Max detected by `UMBBE*` model prefix — works for all hardware revisions
 - **Switch ISP profile**: option 3 in the interactive menu, or `u5gmax-bandfix profile` from the shell
 - **Backwards compatible**: existing installs without a profile in config default to Odido NL automatically
 
