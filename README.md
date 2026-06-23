@@ -4,6 +4,8 @@ Automatically enforce ISP band restrictions on the UniFi U5G-Max modem — persi
 
 Supports **Odido NL** and **Free Mobile FR** out of the box. Switching profiles takes one command.
 
+The modem is detected automatically by searching for any `UMBBE*` model in MongoDB — works regardless of hardware revision (UMBBE630, UMBBE631, or future variants).
+
 > Inspired by [udm-iptv](https://github.com/fabianishere/udm-iptv)
 
 ---
@@ -47,7 +49,7 @@ ISPs that offer FWA (Fixed Wireless Access) over 5G publish a hardware specifica
 
 ## ISP Profiles
 
-### Odido NL (model `UMBBE630`)
+### Odido NL
 
 | Radio | Required active bands |
 |-------|----------------------|
@@ -57,7 +59,7 @@ ISPs that offer FWA (Fixed Wireless Access) over 5G publish a hardware specifica
 
 *Source: Odido 5G Internet hardware specificaties en voorwaarden (3GPP Release 16)*
 
-### Free Mobile FR (model `UMBBE631`)
+### Free Mobile FR
 
 | Radio | Required active bands |
 |-------|----------------------|
@@ -94,7 +96,7 @@ Cloud Gateway (/data/ persistent)
          │
          │ SSH (key-based, no password)
          ▼
-U5G-Max (UMBBE630 / UMBBE631)
+U5G-Max (any UMBBE* model — auto-detected)
 │
 └── uiwwand-ctl        Band configuration tool
 ```
@@ -113,7 +115,7 @@ The ICCID of the active SIM is required by `uiwwand-ctl set-radio-pref`. It's re
 ## Requirements
 
 - UniFi Cloud Gateway (UDM Pro, UDM SE, or Cloud Gateway Fiber)
-- U5G-Max (`UMBBE630` for Odido NL, `UMBBE631` for Free Mobile FR) adopted in UniFi Network
+- U5G-Max (any `UMBBE*` model) adopted in UniFi Network — detected automatically
 - SSH enabled in **UniFi Network → Settings → Advanced → SSH**
 - `sshpass` available on the Cloud Gateway (for one-time key install)
 - `python3` available on the Cloud Gateway (for JSON parsing)
@@ -213,8 +215,7 @@ tail -f /data/u5gmax-bandfix/band-fix.log
 ```bash
 # From the Cloud Gateway
 ICCID=$(grep ICCID_CACHE /data/u5gmax-bandfix/config | cut -d'"' -f2)
-MODEL=$(grep MODEM_MODEL /data/u5gmax-bandfix/config | cut -d'"' -f2)
-U5G_IP=$(mongo --quiet localhost:27117/ace --eval "print(db.device.findOne({model:'$MODEL'}).ip)")
+U5G_IP=$(mongo --quiet localhost:27117/ace --eval 'var d=db.device.findOne({model:/^UMBBE/}); print(d ? d.ip : "null")')
 SSH_USER=$(grep SSH_USER /data/u5gmax-bandfix/config | cut -d'"' -f2)
 printf '{"method":"get-radio-pref","params":{"iccid":"%s"}}' "$ICCID" \
   | ssh -i /data/u5gmax-bandfix/id_ed25519 "${SSH_USER}@${U5G_IP}" uiwwand-ctl

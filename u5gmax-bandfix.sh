@@ -35,7 +35,7 @@ pause() { printf "\nPress Enter to continue..."; read -r; }
 
 get_ip() {
     timeout 30 mongo --quiet localhost:27117/ace \
-        --eval "print(db.device.findOne({model:'${MODEM_MODEL:-UMBBE630}'}).ip)" < /dev/null 2>/dev/null | tr -d '\r\n' || echo ""
+        --eval 'var d=db.device.findOne({model:/^UMBBE/}); print(d ? d.ip : "null")' < /dev/null 2>/dev/null | tr -d '\r\n' || echo ""
 }
 
 get_last_run() {

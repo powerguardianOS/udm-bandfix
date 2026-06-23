@@ -65,7 +65,7 @@ _query_mongo_ip() {
     local _rc=0
     : > "$_out"
     mongo --quiet localhost:27117/ace \
-        --eval "var d=db.device.findOne({model:\"${MODEM_MODEL:-UMBBE630}\"}); print(d ? d.ip : \"null\")" \
+        --eval 'var d=db.device.findOne({model:/^UMBBE/}); print(d ? d.ip : "null")' \
         < /dev/null > "$_out" 2>/dev/null &
     local _pid=$!
     ( sleep 30 && kill -9 "$_pid" 2>/dev/null ) &
@@ -257,7 +257,7 @@ else
     U5G_IP=$(_query_mongo_ip)
     log "MongoDB result: '$U5G_IP'"
     [ -z "$U5G_IP" ] && die "MongoDB unavailable and no cached IP"
-    [ "$U5G_IP" = "null" ] && die "U5G-Max ($MODEM_MODEL) not found in MongoDB — is the modem adopted?"
+    [ "$U5G_IP" = "null" ] && die "U5G-Max (UMBBE*) not found in MongoDB — is the modem adopted?"
     validate_ip "$U5G_IP"
     _update_known_hosts "" "$U5G_IP"
 fi

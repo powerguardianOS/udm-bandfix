@@ -108,10 +108,10 @@ ok "SSH user: $SSH_USER"
 # --- Detect U5G-Max IP ---
 msg "Querying MongoDB for U5G-Max IP..."
 U5G_IP=$(mongo --quiet localhost:27117/ace \
-    --eval "print(db.device.findOne({model:'$MODEM_MODEL'}).ip)" < /dev/null 2>/dev/null | tr -d '\r\n') || true
+    --eval 'var d=db.device.findOne({model:/^UMBBE/}); print(d ? d.ip : "null")' < /dev/null 2>/dev/null | tr -d '\r\n') || true
 
 [ -z "$U5G_IP" ] || [ "$U5G_IP" = "null" ] && \
-    die "U5G-Max ($MODEM_MODEL) not found in MongoDB — is the modem adopted?"
+    die "U5G-Max (UMBBE*) not found in MongoDB — is the modem adopted?"
 
 validate_ip "$U5G_IP"
 ok "U5G-Max IP: $U5G_IP"
