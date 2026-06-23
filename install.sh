@@ -28,6 +28,37 @@ msg ""
 msg "=== u5gmax-bandfix installer ==="
 msg ""
 
+# --- ISP profile selection ---
+msg "Select your ISP profile:"
+printf "  ${BOLD}1)${NC} Odido NL       — LTE B1/3/7/38, NR5G n1/3/7/38/78\n"
+printf "  ${BOLD}2)${NC} Free Mobile FR — LTE B1/3/7/8/28, NR5G n1/28/78\n"
+printf "\n  Choose [1]: "
+read -r _PROFILE_CHOICE
+
+case "${_PROFILE_CHOICE:-1}" in
+    1|"")
+        PROFILE="odido"
+        PROFILE_NAME="Odido NL"
+        MODEM_MODEL="UMBBE630"
+        LTE_REQUIRED="1,3,7,38"
+        NR5G_SA_REQUIRED="1,3,7,38,78"
+        NR5G_NSA_REQUIRED="1,3,7,38,78"
+        ;;
+    2)
+        PROFILE="freemobile"
+        PROFILE_NAME="Free Mobile FR"
+        MODEM_MODEL="UMBBE631"
+        LTE_REQUIRED="1,3,7,8,28"
+        NR5G_SA_REQUIRED="1,28,78"
+        NR5G_NSA_REQUIRED="1,28,78"
+        ;;
+    *)
+        die "Invalid choice — run install.sh again"
+        ;;
+esac
+ok "Profile: $PROFILE_NAME"
+msg ""
+
 # --- Prerequisite checks ---
 [ "$(id -u)" -eq 0 ] || die "Must run as root"
 command -v mongo   >/dev/null 2>&1 || die "mongo client not found"
@@ -77,10 +108,10 @@ ok "SSH user: $SSH_USER"
 # --- Detect U5G-Max IP ---
 msg "Querying MongoDB for U5G-Max IP..."
 U5G_IP=$(mongo --quiet localhost:27117/ace \
-    --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" < /dev/null 2>/dev/null | tr -d '\r\n') || true
+    --eval "print(db.device.findOne({model:'$MODEM_MODEL'}).ip)" < /dev/null 2>/dev/null | tr -d '\r\n') || true
 
 [ -z "$U5G_IP" ] || [ "$U5G_IP" = "null" ] && \
-    die "U5G-Max (UMBBE630) not found in MongoDB — is the modem adopted?"
+    die "U5G-Max ($MODEM_MODEL) not found in MongoDB — is the modem adopted?"
 
 validate_ip "$U5G_IP"
 ok "U5G-Max IP: $U5G_IP"
@@ -155,6 +186,12 @@ cat > "$CONFIG" << EOF
 SSH_USER="$SSH_USER"
 SSH_PASS="$SSH_PASS"
 ICCID_CACHE="$ICCID"
+PROFILE="$PROFILE"
+PROFILE_NAME="$PROFILE_NAME"
+MODEM_MODEL="$MODEM_MODEL"
+LTE_REQUIRED="$LTE_REQUIRED"
+NR5G_SA_REQUIRED="$NR5G_SA_REQUIRED"
+NR5G_NSA_REQUIRED="$NR5G_NSA_REQUIRED"
 EOF
 chmod 600 "$CONFIG"
 printf '%s\n' "$U5G_IP" > "$DATA_DIR/last_ip.txt"
@@ -179,7 +216,7 @@ ok "band-fix.sh installed: $SCRIPT_DEST"
 # --- Install cron job ---
 msg "Installing cron job..."
 cat > "$CRON_FILE" << 'EOF'
-# u5gmax-bandfix: Odido NL band enforcement for U5G-Max
+# u5gmax-bandfix: ISP band enforcement for U5G-Max (profile: $PROFILE_NAME)
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 # On boot: poll until modem online, then apply fix (also restores this cron if wiped)

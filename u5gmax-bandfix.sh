@@ -1,5 +1,5 @@
 #!/bin/bash
-# u5gmax-bandfix — interactive CLI for managing Odido NL band restrictions
+# u5gmax-bandfix — interactive CLI for managing ISP band restrictions on U5G-Max
 # Installed to /usr/local/sbin/u5gmax-bandfix
 
 set -euo pipefail
@@ -13,6 +13,17 @@ LOG_FILE="$DATA_DIR/band-fix.log"
 CRON_FILE="/etc/cron.d/u5gmax-bandfix"
 BAND_FIX="$DATA_DIR/band-fix.sh"
 
+# Load config early so MODEM_MODEL and profile vars are available globally
+# shellcheck source=/dev/null
+[ -f "$CONFIG" ] && source "$CONFIG" || true
+
+# ISP profile defaults (backwards compat with pre-profile installs)
+: "${PROFILE_NAME:=Odido NL}"
+: "${MODEM_MODEL:=UMBBE630}"
+: "${LTE_REQUIRED:=1,3,7,38}"
+: "${NR5G_SA_REQUIRED:=1,3,7,38,78}"
+: "${NR5G_NSA_REQUIRED:=1,3,7,38,78}"
+
 # Colors
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'
 B='\033[0;34m'; C='\033[0;36m'; W='\033[1;37m'; NC='\033[0m'
@@ -24,7 +35,7 @@ pause() { printf "\nPress Enter to continue..."; read -r; }
 
 get_ip() {
     timeout 30 mongo --quiet localhost:27117/ace \
-        --eval "print(db.device.findOne({model:'UMBBE630'}).ip)" < /dev/null 2>/dev/null | tr -d '\r\n' || echo ""
+        --eval "print(db.device.findOne({model:'${MODEM_MODEL:-UMBBE630}'}).ip)" < /dev/null 2>/dev/null | tr -d '\r\n' || echo ""
 }
 
 get_last_run() {
@@ -41,7 +52,7 @@ get_last_result() {
     line=$(grep -E "\] (OK:|VERIFIED:|ERROR:|WARNING:)" "$LOG_FILE" | tail -1)
     [ -z "$line" ] && { printf "—"; return; }
     if echo "$line" | grep -q "OK:"; then
-        printf "${G}✓ Odido-compliant${NC}"
+        printf "${G}✓ ${PROFILE_NAME}-compliant${NC}"
     elif echo "$line" | grep -q "VERIFIED:"; then
         printf "${G}✓ Fixed & verified${NC}"
     elif echo "$line" | grep -q "WARNING: SSH"; then
@@ -91,7 +102,7 @@ print_header() {
     printf "${C}"
     printf '╔══════════════════════════════════════════════╗\n'
     printf '║            u5gmax-bandfix  v%-5s            ║\n' "$VERSION"
-    printf '║      Odido NL Band Fix — UniFi U5G-Max       ║\n'
+    printf '║   %-42s ║\n' "${PROFILE_NAME} — UniFi U5G-Max"
     printf '╠══════════════════════════════════════════════╣\n'
     printf "${NC}"
     printf "  ${W}U5G-Max IP:${NC}  ${u5g_ip}\n"
@@ -107,7 +118,7 @@ print_header() {
 print_menu() {
     printf "  ${W}1)${NC} Force band check now\n"
     printf "  ${W}2)${NC} Show current band status\n"
-    printf "  ${W}3)${NC} Edit required bands\n"
+    printf "  ${W}3)${NC} Switch ISP profile\n"
     printf "  ${W}4)${NC} Show logs\n"
     printf "  ${W}5)${NC} Reinstall SSH key on U5G-Max\n"
     printf "  ${W}6)${NC} Update to latest version\n"
@@ -204,15 +215,17 @@ action_band_status() {
 
     printf "\n${W}ICCID:${NC} %s\n\n" "$iccid"
 
-    python3 - "$current" << 'PYEOF'
+    python3 - "$current" "$LTE_REQUIRED" "$NR5G_SA_REQUIRED" "$NR5G_NSA_REQUIRED" << 'PYEOF'
 import json, sys
 
+def _bands(s):
+    return {int(b) for b in s.split(",") if b.strip().isdigit()}
+
 REQUIRED = {
-    "lte_band":      {1, 3, 7, 38},
-    "nr5g_sa_band":  {1, 3, 7, 38, 78},
-    "nr5g_nsa_band": {1, 3, 7, 38, 78},
+    "lte_band":      _bands(sys.argv[2]),
+    "nr5g_sa_band":  _bands(sys.argv[3]),
+    "nr5g_nsa_band": _bands(sys.argv[4]),
 }
-FORBIDDEN = {8, 20, 28}
 
 GREEN = "\033[0;32m"
 RED   = "\033[0;31m"
@@ -231,15 +244,15 @@ try:
     for key, req in REQUIRED.items():
         val = result.get(key, "")
         actual = {int(b) for b in val.split(",") if b.strip().isdigit()} if val else set()
-        forbidden_present = actual & FORBIDDEN
-        matches_spec = actual == req
-        if matches_spec:
-            status = f"{GREEN}✓ Odido-compliant{NC}"
-        elif forbidden_present:
-            status = f"{RED}✗ FORBIDDEN BANDS ACTIVE: {sorted(forbidden_present)}{NC}"
-            ok = False
+        extra = sorted(actual - req)
+        missing = sorted(req - actual)
+        if actual == req:
+            status = f"{GREEN}✓ compliant{NC}"
         else:
-            status = f"{RED}✗ Non-compliant{NC}"
+            parts = []
+            if extra:   parts.append(f"extra={extra}")
+            if missing: parts.append(f"missing={missing}")
+            status = f"{RED}✗ Non-compliant — {', '.join(parts)}{NC}"
             ok = False
         print(f"  {BOLD}{labels[key]}:{NC} {val or '(empty)'}")
         print(f"               → {status}")
@@ -252,7 +265,7 @@ sys.exit(0 if ok else 1)
 PYEOF
     local _pyrc=$?
     if [ "$_pyrc" -ne 0 ]; then
-        read -r -p "  Bands are non-compliant. Apply Odido fix now? [Y/n] " _confirm
+        read -r -p "  Bands are non-compliant. Apply ${PROFILE_NAME} fix now? [Y/n] " _confirm
         case "${_confirm:-Y}" in
             [Yy]|"") bash "$BAND_FIX" && printf "\n${G}✓ Fix applied.${NC}\n" || printf "\n${R}✗ Fix failed — see logs.${NC}\n" ;;
             *) printf "Skipped.\n" ;;
@@ -261,74 +274,56 @@ PYEOF
     pause
 }
 
-action_edit_bands() {
-    load_config
-
-    # Odido-required bands (always the baseline)
-    local BASE_LTE="1,3,7,38"
-    local BASE_SA="1,3,7,38,78"
-    local BASE_NSA="1,3,7,38,78"
-
-    printf "\n${Y}Disable extra bands${NC}\n"
-    printf "${W}Odido-required active bands (baseline):${NC}\n"
-    printf "  LTE:       B%s\n" "$(echo "$BASE_LTE" | sed 's/,/, B/g')"
-    printf "  NR5G SA:   n%s\n" "$(echo "$BASE_SA"  | sed 's/,/, n/g')"
-    printf "  NR5G NSA:  n%s\n" "$(echo "$BASE_NSA" | sed 's/,/, n/g')"
-    printf "\n${Y}Note:${NC} B8/B20/B28 and n8/n20/n28 are always disabled (Odido requirement).\n"
-    printf "Enter band numbers to additionally disable from the baseline (leave empty for none).\n\n"
-
-    read -r -p "Disable from LTE  (e.g. 38 to disable B38):   " DISABLE_LTE
-    read -r -p "Disable from NR5G (e.g. 78 to disable n78):   " DISABLE_NR
-
-    # Compute result: remove disabled bands from baseline
-    _remove_bands() {
-        local list="$1" remove="$2"
-        local result=""
-        local b
-        IFS=',' read -ra bands <<< "$list"
-        for b in "${bands[@]}"; do
-            b="${b// /}"
-            if ! echo ",$remove," | grep -q ",$b,"; then
-                result="${result:+$result,}$b"
-            fi
-        done
-        printf '%s' "$result"
-    }
-
-    INPUT_LTE=$(_remove_bands "$BASE_LTE" "$DISABLE_LTE")
-    INPUT_SA=$(_remove_bands  "$BASE_SA"  "$DISABLE_NR")
-    INPUT_NSA=$(_remove_bands "$BASE_NSA" "$DISABLE_NR")
-
-    [ -z "$INPUT_LTE" ] && { printf "${R}✗ Cannot disable all LTE bands.${NC}\n"; pause; return; }
-    [ -z "$INPUT_SA" ]  && { printf "${R}✗ Cannot disable all NR5G SA bands.${NC}\n"; pause; return; }
-    [ -z "$INPUT_NSA" ] && { printf "${R}✗ Cannot disable all NR5G NSA bands.${NC}\n"; pause; return; }
-
-    printf "\n${W}Result:${NC}\n"
-    printf "  LTE:      %s\n" "$INPUT_LTE"
-    printf "  NR5G SA:  %s\n" "$INPUT_SA"
-    printf "  NR5G NSA: %s\n" "$INPUT_NSA"
-    read -r -p "Apply? [y/N] " CONFIRM
-    [[ "$CONFIRM" =~ ^[Yy]$ ]] || { printf "Cancelled.\n"; pause; return; }
-
-    # Write custom bands to config
+_write_profile_to_config() {
     {
-        grep -v "^CUSTOM_LTE\|^CUSTOM_SA\|^CUSTOM_NSA" "$CONFIG"
-        printf 'CUSTOM_LTE="%s"\n' "$INPUT_LTE"
-        printf 'CUSTOM_SA="%s"\n' "$INPUT_SA"
-        printf 'CUSTOM_NSA="%s"\n' "$INPUT_NSA"
+        grep -v "^PROFILE=\|^PROFILE_NAME=\|^MODEM_MODEL=\|^LTE_REQUIRED=\|^NR5G_SA_REQUIRED=\|^NR5G_NSA_REQUIRED=" "$CONFIG"
+        printf 'PROFILE="%s"\n'          "$PROFILE"
+        printf 'PROFILE_NAME="%s"\n'     "$PROFILE_NAME"
+        printf 'MODEM_MODEL="%s"\n'      "$MODEM_MODEL"
+        printf 'LTE_REQUIRED="%s"\n'     "$LTE_REQUIRED"
+        printf 'NR5G_SA_REQUIRED="%s"\n' "$NR5G_SA_REQUIRED"
+        printf 'NR5G_NSA_REQUIRED="%s"\n' "$NR5G_NSA_REQUIRED"
     } > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
     chmod 600 "$CONFIG"
+}
 
-    # Patch band-fix.sh to use custom values
-    sed -i \
-        -e "s|^LTE_REQUIRED=.*|LTE_REQUIRED=\"$INPUT_LTE\"|" \
-        -e "s|^NR5G_SA_REQUIRED=.*|NR5G_SA_REQUIRED=\"$INPUT_SA\"|" \
-        -e "s|^NR5G_NSA_REQUIRED=.*|NR5G_NSA_REQUIRED=\"$INPUT_NSA\"|" \
-        "$BAND_FIX"
+action_switch_profile() {
+    load_config
 
-    printf "\n${G}✓ Bands updated. Running force check...${NC}\n"
-    bash "$BAND_FIX" && printf "\n${G}✓ Applied.${NC}\n" || printf "\n${R}✗ Check failed — see logs.${NC}\n"
-    pause
+    printf "\n${Y}Switch ISP profile${NC}\n\n"
+    printf "  ${W}1)${NC} Odido NL       — LTE B1/3/7/38,    NR5G n1/3/7/38/78\n"
+    printf "  ${W}2)${NC} Free Mobile FR — LTE B1/3/7/8/28,  NR5G n1/28/78\n"
+    printf "  ${W}0)${NC} Cancel\n"
+    printf "\n  Current: ${W}${PROFILE_NAME}${NC}\n\n"
+    read -r -p "  Choose: " _PCHOICE
+
+    case "${_PCHOICE}" in
+        1)
+            PROFILE="odido"
+            PROFILE_NAME="Odido NL"
+            MODEM_MODEL="UMBBE630"
+            LTE_REQUIRED="1,3,7,38"
+            NR5G_SA_REQUIRED="1,3,7,38,78"
+            NR5G_NSA_REQUIRED="1,3,7,38,78"
+            ;;
+        2)
+            PROFILE="freemobile"
+            PROFILE_NAME="Free Mobile FR"
+            MODEM_MODEL="UMBBE631"
+            LTE_REQUIRED="1,3,7,8,28"
+            NR5G_SA_REQUIRED="1,28,78"
+            NR5G_NSA_REQUIRED="1,28,78"
+            ;;
+        0) return ;;
+        *) printf "${R}Invalid choice.${NC}\n"; pause; return ;;
+    esac
+
+    _write_profile_to_config
+    printf "\n${G}✓ Profile switched to ${PROFILE_NAME}.${NC}\n"
+    read -r -p "  Run band check now? [Y/n] " _run
+    case "${_run:-Y}" in
+        [Yy]|"") action_force_check ;;
+    esac
 }
 
 action_show_logs() {
@@ -440,16 +435,17 @@ action_uninstall() {
 }
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
-# Non-interactive mode: u5gmax-bandfix check|status|logs|update|uninstall
+# Non-interactive mode: u5gmax-bandfix check|status|profile|logs|update|uninstall
 if [ $# -gt 0 ]; then
     case "$1" in
         check)     action_force_check ;;
         status)    action_band_status ;;
+        profile)   action_switch_profile ;;
         logs)      action_show_logs ;;
         update)    action_update ;;
         uninstall) action_uninstall ;;
         *)
-            printf "Usage: u5gmax-bandfix [check|status|logs|update|uninstall]\n"
+            printf "Usage: u5gmax-bandfix [check|status|profile|logs|update|uninstall]\n"
             printf "       u5gmax-bandfix          (interactive menu)\n"
             exit 1
             ;;
@@ -467,7 +463,7 @@ while true; do
     case "$CHOICE" in
         1) action_force_check ;;
         2) action_band_status ;;
-        3) action_edit_bands ;;
+        3) action_switch_profile ;;
         4) action_show_logs ;;
         5) action_reinstall_key ;;
         6) action_update ;;

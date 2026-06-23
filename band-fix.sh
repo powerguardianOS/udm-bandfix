@@ -1,8 +1,6 @@
 #!/bin/bash
-# u5gmax-bandfix: Enforce Odido NL band restrictions on U5G-Max from Cloud Gateway
-# Source: Odido 5G Internet hardware specificaties en voorwaarden
-# Required active bands: LTE B1/B3/B7/B38, NR n1/n3/n7/n38/n78
-# Forbidden bands (must be disabled): B8, B20, B28, n8, n20, n28
+# u5gmax-bandfix: Enforce ISP band restrictions on U5G-Max from Cloud Gateway
+# Band configuration and ISP profile are loaded from config (set by install.sh or CLI)
 
 set -euo pipefail
 exec </dev/null
@@ -14,11 +12,6 @@ CONFIG="$DATA_DIR/config"
 SSH_KEY="$DATA_DIR/id_ed25519"
 KNOWN_HOSTS="$DATA_DIR/known_hosts"
 LAST_IP_FILE="$DATA_DIR/last_ip.txt"
-
-# Exact Odido-specified band lists per official hardware spec (3GPP Release 16)
-LTE_REQUIRED="1,3,7,38"
-NR5G_SA_REQUIRED="1,3,7,38,78"
-NR5G_NSA_REQUIRED="1,3,7,38,78"
 
 # Max log size before rotation (bytes)
 LOG_MAX_BYTES=524288  # 512 KB
@@ -72,7 +65,7 @@ _query_mongo_ip() {
     local _rc=0
     : > "$_out"
     mongo --quiet localhost:27117/ace \
-        --eval 'var d=db.device.findOne({model:"UMBBE630"}); print(d ? d.ip : "null")' \
+        --eval "var d=db.device.findOne({model:\"${MODEM_MODEL:-UMBBE630}\"}); print(d ? d.ip : \"null\")" \
         < /dev/null > "$_out" 2>/dev/null &
     local _pid=$!
     ( sleep 30 && kill -9 "$_pid" 2>/dev/null ) &
@@ -244,6 +237,13 @@ source "$CONFIG"
 : "${SSH_USER:?CONFIG missing SSH_USER}"
 validate_ssh_user "$SSH_USER"
 
+# ISP profile — defaults to Odido NL for backwards compatibility with pre-profile installs
+: "${PROFILE_NAME:=Odido NL}"
+: "${MODEM_MODEL:=UMBBE630}"
+: "${LTE_REQUIRED:=1,3,7,38}"
+: "${NR5G_SA_REQUIRED:=1,3,7,38,78}"
+: "${NR5G_NSA_REQUIRED:=1,3,7,38,78}"
+
 # --- Get current U5G-Max IP (cache-first: skip mongo on normal cron runs) ---
 LAST_IP=""
 [ -f "$LAST_IP_FILE" ] && LAST_IP=$(tr -d '\r\n' < "$LAST_IP_FILE")
@@ -257,7 +257,7 @@ else
     U5G_IP=$(_query_mongo_ip)
     log "MongoDB result: '$U5G_IP'"
     [ -z "$U5G_IP" ] && die "MongoDB unavailable and no cached IP"
-    [ "$U5G_IP" = "null" ] && die "U5G-Max (UMBBE630) not found in MongoDB — is the modem adopted?"
+    [ "$U5G_IP" = "null" ] && die "U5G-Max ($MODEM_MODEL) not found in MongoDB — is the modem adopted?"
     validate_ip "$U5G_IP"
     _update_known_hosts "" "$U5G_IP"
 fi
@@ -394,7 +394,7 @@ if [ "$RAT_MODE" = "WCDMA" ]; then
     log "Current: $CURRENT"
 fi
 
-# --- Check compliance: compare against exact Odido spec ---
+# --- Check compliance: compare against ISP profile spec ---
 check_compliance() {
     local json="$1"
     python3 - "$json" "$LTE_REQUIRED" "$NR5G_SA_REQUIRED" "$NR5G_NSA_REQUIRED" << 'PYEOF'
@@ -438,7 +438,7 @@ PYEOF
 
 MISMATCHES=$(check_compliance "$CURRENT")
 if [ -z "$MISMATCHES" ]; then
-    log "OK: Band configuration matches Odido spec — nothing to do"
+    log "OK: Band configuration matches ${PROFILE_NAME} spec — nothing to do"
     exit 0
 fi
 
@@ -448,7 +448,7 @@ while IFS= read -r line; do
 done <<< "$MISMATCHES"
 
 # --- Apply band fix ---
-log "Applying Odido-spec band configuration..."
+log "Applying ${PROFILE_NAME}-spec band configuration..."
 
 PAYLOAD=$(printf \
     '{"method":"set-radio-pref","params":{"iccid":"%s","mode":"5gnr,lte","lte_band":"%s","nr5g_sa_band":"%s","nr5g_nsa_band":"%s"}}' \
@@ -482,5 +482,5 @@ if [ -n "$REMAINING" ]; then
     die "Fix applied but config still non-compliant:$REMAINING"
 fi
 
-log "VERIFIED: Odido-compliant band configuration confirmed"
+log "VERIFIED: ${PROFILE_NAME}-compliant band configuration confirmed"
 log "Done."
