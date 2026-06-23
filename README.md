@@ -63,13 +63,13 @@ ISPs that offer FWA (Fixed Wireless Access) over 5G publish a hardware specifica
 
 ### Free Mobile FR
 
-| Radio | Required active bands |
-|-------|----------------------|
-| LTE | B1, B3, B7, B8, B28 |
-| NR5G SA | n1, n28, n78 |
-| NR5G NSA | n1, n28, n78 |
+| Radio | Required active bands | Must be disabled |
+|-------|----------------------|-----------------|
+| LTE (FDD) | B1, B3, B7, B8, B28 | B20, B38 |
+| NR5G SA/NSA (FDD) | n1, n28 | n3, n7, n8, n20, n38 |
+| NR5G SA/NSA (TDD) | n78 | — |
 
-*Source: Free Mobile FWA documentation (3GPP Release 16)*
+*Source: [Free Mobile France spectrum allocation](https://www.spectrum-tracker.com/France/Free-Mobile) (ARCEP licensed bands). No official FWA hardware spec document published by Free Mobile.*
 
 ---
 
