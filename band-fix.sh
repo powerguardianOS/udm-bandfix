@@ -295,6 +295,21 @@ if ! _ssh_bg "$_chk" $SSH_OPTS "${SSH_USER}@${U5G_IP}" "exit 0"; then
             exit 0
         fi
     fi
+else
+    # SSH to cached IP succeeded — check if MongoDB has a newer IP and switch immediately
+    if [ -n "$LAST_IP" ]; then
+        _mongo_ip=$(_query_mongo_ip 2>/dev/null) || true
+        if printf '%s' "$_mongo_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' && \
+                [ "$_mongo_ip" != "$U5G_IP" ]; then
+            log "INFO: IP changed ($U5G_IP → $_mongo_ip) — switching to new IP now"
+            if ( _update_known_hosts "$U5G_IP" "$_mongo_ip" ); then
+                U5G_IP="$_mongo_ip"
+                log "INFO: Now using $U5G_IP for remainder of this run"
+            else
+                log "WARNING: Could not scan host key for $_mongo_ip — continuing with $U5G_IP (still reachable)"
+            fi
+        fi
+    fi
 fi
 
 # --- Fetch ICCID live from modem (not from static config — survives SIM swaps) ---
