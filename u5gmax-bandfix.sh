@@ -86,7 +86,7 @@ get_reboot_status() {
     if [ -z "$_rtime" ]; then
         printf "not scheduled"
     else
-        printf "${Y}⚠ scheduled %s %s (UTC)" "$_rsched" "$_rtime"
+        printf "${Y}⚠ scheduled %s %s (%s)" "$_rsched" "$_rtime" "$(date +%Z)"
     fi
 }
 
@@ -444,8 +444,9 @@ action_schedule_reboot() {
     
     # Enter time (if not already set from type-change)
     if [ -z "${_rtime:-}" ]; then
-        printf "\n  Note: time is UTC — adjust for your local timezone.\n"
-        printf "  Enter reboot time (HH:MM): "
+        _now_disp="$(date +"%H:%M %Z")"
+        printf "\n  System time now: %s\n" "$_now_disp"
+        printf "  Enter reboot time (HH:MM, %s): " "$(date +%Z)"
         read -r _rtime
         if ! printf "%s" "$_rtime" | grep -qE "^([01][0-9]|2[0-3]):[0-5][0-9]$"; then
             printf "\nInvalid time format. Use HH:MM (e.g. 02:30).\n"
@@ -480,10 +481,10 @@ action_schedule_reboot() {
             _label="tomorrow"
         fi
         printf "SHELL=/bin/bash\nPATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n%s %s %s %s * root /data/u5gmax-bandfix/reboot-modem.sh >> /data/u5gmax-bandfix/band-fix.log 2>&1\n" "$_m" "$_h" "$_today_d" "$_today_m" > "$REBOOT_CRON_FILE"
-        printf "\n✓ Reboot scheduled: %s %s (UTC) — once\n" "$_label" "$_rtime"
+        printf "\n✓ Reboot scheduled: %s %s (%s) — once\n" "$_label" "$_rtime" "$(date +%Z)"
     else
         printf "SHELL=/bin/bash\nPATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n%s %s * * * root /data/u5gmax-bandfix/reboot-modem.sh >> /data/u5gmax-bandfix/band-fix.log 2>&1\n" "$_m" "$_h" > "$REBOOT_CRON_FILE"
-        printf "\n✓ Reboot scheduled: daily %s (UTC)\n" "$_rtime"
+        printf "\n✓ Reboot scheduled: daily %s (%s)\n" "$_rtime" "$(date +%Z)"
     fi
     chmod 644 "$REBOOT_CRON_FILE"
     pause
