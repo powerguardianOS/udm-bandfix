@@ -260,6 +260,17 @@ elif command -v curl >/dev/null 2>&1; then
 fi
 [ -f "$UNINSTALL_DEST" ] && chmod +x "$UNINSTALL_DEST" && ok "uninstall.sh installed: $UNINSTALL_DEST"
 
+# --- Install reboot-modem.sh to /data/ ---
+msg "Installing reboot-modem.sh..."
+REBOOT_DEST="$DATA_DIR/reboot-modem.sh"
+REBOOT_SRC_URL="https://raw.githubusercontent.com/royrijpma/u5gmax-bandfix/main/reboot-modem.sh"
+if [ -f "$INSTALLER_DIR/reboot-modem.sh" ]; then
+    cp "$INSTALLER_DIR/reboot-modem.sh" "$REBOOT_DEST"
+elif command -v curl >/dev/null 2>&1; then
+    curl -sSL "$REBOOT_SRC_URL" -o "$REBOOT_DEST" || warn "Could not download reboot-modem.sh"
+fi
+[ -f "$REBOOT_DEST" ] && chmod +x "$REBOOT_DEST" && ok "reboot-modem.sh installed: $REBOOT_DEST"
+
 # --- Initial run ---
 msg ""
 msg "Running initial band fix..."

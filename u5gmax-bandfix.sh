@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-VERSION="1.2.1"
+VERSION="1.3.0"
 DATA_DIR="/data/u5gmax-bandfix"
 CONFIG="$DATA_DIR/config"
 SSH_KEY="$DATA_DIR/id_ed25519"
@@ -12,6 +12,7 @@ KNOWN_HOSTS="$DATA_DIR/known_hosts"
 LOG_FILE="$DATA_DIR/band-fix.log"
 CRON_FILE="/etc/cron.d/u5gmax-bandfix"
 BAND_FIX="$DATA_DIR/band-fix.sh"
+REBOOT_CRON_FILE="/etc/cron.d/u5gmax-reboot"
 
 # Load config early so MODEM_MODEL and profile vars are available globally
 # shellcheck source=/dev/null
@@ -78,6 +79,17 @@ cron_status() {
     fi
 }
 
+get_reboot_status() {
+    source "$CONFIG" 2>/dev/null || true
+    local _rtime="${REBOOT_TIME:-}"
+    local _rsched="${REBOOT_SCHEDULE:-}"
+    if [ -z "$_rtime" ]; then
+        printf "not scheduled"
+    else
+        printf "${Y}⚠ scheduled %s %s (UTC)" "$_rsched" "$_rtime"
+    fi
+}
+
 ssh_opts() {
     echo "-i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
 }
@@ -91,12 +103,13 @@ load_config() {
 
 # ── Header ────────────────────────────────────────────────────────────────────
 print_header() {
-    local u5g_ip cron last_run result
+    local u5g_ip cron last_run result reboot_status
     u5g_ip=$(get_ip)
     [ -z "$u5g_ip" ] || [ "$u5g_ip" = "null" ] && u5g_ip="${R}offline${NC}"
     cron=$(cron_status)
     last_run=$(get_last_run)
     result=$(get_last_result)
+    reboot_status=$(get_reboot_status)
 
     clear
     printf "${C}"
@@ -108,7 +121,8 @@ print_header() {
     printf "  ${W}U5G-Max IP:${NC}  ${u5g_ip}\n"
     printf "  ${W}Cron:${NC}        %s\n" "$cron"
     printf "  ${W}Last run:${NC}    %s\n" "$last_run"
-    printf "  ${W}Result:${NC}      ${result}\n"
+    printf "  ${W}Result:${NC}      %s\n" "$result"
+    printf "  ${W}Reboot:${NC}      %s\n" "$reboot_status"
     printf "${C}"
     printf '╠══════════════════════════════════════════════╣\n'
     printf "${NC}"
@@ -123,6 +137,7 @@ print_menu() {
     printf "  ${W}5)${NC} Reinstall SSH key on U5G-Max\n"
     printf "  ${W}6)${NC} Update to latest version\n"
     printf "  ${W}7)${NC} Uninstall\n"
+    printf "  ${W}8)${NC} Schedule one-time reboot\n"
     printf "  ${W}0)${NC} Exit\n"
     printf "${C}"
     printf '╚══════════════════════════════════════════════╝\n'
@@ -374,6 +389,106 @@ action_reinstall_key() {
     pause
 }
 
+action_schedule_reboot() {
+    load_config
+    
+    # Re-source config to get current reboot settings
+    source "$CONFIG" 2>/dev/null || true
+    local _rtime=""
+    local _rsched=""
+    
+    # If already scheduled, show management submenu
+    if [ -n "${REBOOT_TIME:-}" ] && [ -f "$REBOOT_CRON_FILE" ]; then
+        printf "\nScheduled: %s %s (UTC)\n\n" "$REBOOT_SCHEDULE" "$REBOOT_TIME"
+        printf "  1) Cancel scheduled reboot\n"
+        printf "  2) Change time\n"
+        if [ "${REBOOT_SCHEDULE:-}" = "once" ]; then
+            printf "  3) Change to daily\n"
+        else
+            printf "  3) Change to once\n"
+        fi
+        printf "  0) Back\n"
+        printf "\n  Choose: "
+        read -r _sub
+        case "${_sub}" in
+            1)
+                rm -f "$REBOOT_CRON_FILE"
+                grep -v "^REBOOT_" "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
+                printf "\n✓ Scheduled reboot cancelled.\n"
+                pause; return ;;
+            2)
+                _rtime="$REBOOT_TIME" ;;  # fall through to schedule new time below
+            3)
+                if [ "${REBOOT_SCHEDULE:-}" = "once" ]; then _rsched="daily"; else _rsched="once"; fi
+                _rtime="$REBOOT_TIME" ;;  # keep time, change type — fall through to write
+            0) return ;;
+            *) printf "\nInvalid choice.\n"; pause; return ;;
+        esac
+    fi
+    
+    # Choose schedule type (only if not changing type from submenu)
+    if [ -z "${_rsched:-}" ] || [ "${_sub:-}" != "3" ]; then
+        printf "\n  Schedule type:\n"
+        printf "  1) Once       — reboot one time, then remove schedule\n"
+        printf "  2) Daily      — reboot every 24h at this time\n"
+        printf "  0) Cancel\n"
+        printf "\n  Choose: "
+        read -r _tchoice
+        case "${_tchoice}" in
+            1) _rsched="once" ;;
+            2) _rsched="daily" ;;
+            0) return ;;
+            *) printf "\nInvalid choice.\n"; pause; return ;;
+        esac
+    fi
+    
+    # Enter time (if not already set from type-change)
+    if [ -z "${_rtime:-}" ]; then
+        printf "\n  Note: time is UTC — adjust for your local timezone.\n"
+        printf "  Enter reboot time (HH:MM): "
+        read -r _rtime
+        if ! printf "%s" "$_rtime" | grep -qE "^([01][0-9]|2[0-3]):[0-5][0-9]$"; then
+            printf "\nInvalid time format. Use HH:MM (e.g. 02:30).\n"
+            pause; return
+        fi
+    fi
+    
+    # Write REBOOT_TIME and REBOOT_SCHEDULE to config
+    local _h _m
+    _h=$(printf "%s" "$_rtime" | cut -d: -f1)
+    _m=$(printf "%s" "$_rtime" | cut -d: -f2)
+    
+    grep -v "^REBOOT_" "$CONFIG" > "$CONFIG.tmp"
+    printf 'REBOOT_TIME="%s"\n' "$_rtime" >> "$CONFIG.tmp"
+    printf 'REBOOT_SCHEDULE="%s"\n' "$_rsched" >> "$CONFIG.tmp"
+    mv "$CONFIG.tmp" "$CONFIG"
+    chmod 600 "$CONFIG"
+    
+    # Write cron entry
+    if [ "$_rsched" = "once" ]; then
+        # Determine today or tomorrow
+        local _now_hm _today_d _today_m _tomorrow _req_hm _label
+        _now_hm=$(date +%H%M)
+        _req_hm=$(printf "%s" "$_rtime" | tr -d :)
+        if [ "$_req_hm" -gt "$_now_hm" ] 2>/dev/null; then
+            _today_d=$(date +%d)
+            _today_m=$(date +%m)
+            _label="today"
+        else
+            _today_d=$(date -d "+1 day" +%d)
+            _today_m=$(date -d "+1 day" +%m)
+            _label="tomorrow"
+        fi
+        printf "SHELL=/bin/bash\nPATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n%s %s %s %s * root /data/u5gmax-bandfix/reboot-modem.sh >> /data/u5gmax-bandfix/band-fix.log 2>&1\n" "$_m" "$_h" "$_today_d" "$_today_m" > "$REBOOT_CRON_FILE"
+        printf "\n✓ Reboot scheduled: %s %s (UTC) — once\n" "$_label" "$_rtime"
+    else
+        printf "SHELL=/bin/bash\nPATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n%s %s * * * root /data/u5gmax-bandfix/reboot-modem.sh >> /data/u5gmax-bandfix/band-fix.log 2>&1\n" "$_m" "$_h" > "$REBOOT_CRON_FILE"
+        printf "\n✓ Reboot scheduled: daily %s (UTC)\n" "$_rtime"
+    fi
+    chmod 644 "$REBOOT_CRON_FILE"
+    pause
+}
+
 action_update() {
     local BASE="https://raw.githubusercontent.com/royrijpma/u5gmax-bandfix/main"
     local ok=0 fail=0
@@ -396,11 +511,12 @@ action_update() {
         fi
     }
 
-    _update_file "$BASE/band-fix.sh"       "$DATA_DIR/band-fix.sh"              "+x"
-    _update_file "$BASE/on-boot.sh"        "$DATA_DIR/on-boot.sh"               "+x"
-    _update_file "$BASE/uninstall.sh"      "$DATA_DIR/uninstall.sh"             "+x"
-    _update_file "$BASE/u5gmax-bandfix.sh" "$DATA_DIR/u5gmax-bandfix.sh"        "+x"
-    _update_file "$BASE/u5gmax-bandfix.sh" "/usr/local/sbin/u5gmax-bandfix"     "+x"
+    _update_file "$BASE/band-fix.sh"        "$DATA_DIR/band-fix.sh"              "+x"
+    _update_file "$BASE/on-boot.sh"         "$DATA_DIR/on-boot.sh"               "+x"
+    _update_file "$BASE/uninstall.sh"       "$DATA_DIR/uninstall.sh"             "+x"
+    _update_file "$BASE/reboot-modem.sh"    "$DATA_DIR/reboot-modem.sh"          "+x"
+    _update_file "$BASE/u5gmax-bandfix.sh"  "$DATA_DIR/u5gmax-bandfix.sh"        "+x"
+    _update_file "$BASE/u5gmax-bandfix.sh"  "/usr/local/sbin/u5gmax-bandfix"     "+x"
 
     printf "\n"
     if [ "$fail" -eq 0 ]; then
@@ -444,8 +560,9 @@ if [ $# -gt 0 ]; then
         logs)      action_show_logs ;;
         update)    action_update ;;
         uninstall) action_uninstall ;;
+        reboot-schedule) action_schedule_reboot ;;
         *)
-            printf "Usage: u5gmax-bandfix [check|status|profile|logs|update|uninstall]\n"
+            printf "Usage: u5gmax-bandfix [check|status|profile|logs|update|uninstall|reboot-schedule]\n"
             printf "       u5gmax-bandfix          (interactive menu)\n"
             exit 1
             ;;
@@ -468,6 +585,7 @@ while true; do
         5) action_reinstall_key ;;
         6) action_update ;;
         7) action_uninstall ;;
+        8) action_schedule_reboot ;;
         0) clear; exit 0 ;;
         *) printf "\n${R}Invalid choice.${NC}\n"; sleep 1 ;;
     esac
