@@ -448,8 +448,10 @@ action_schedule_reboot() {
         printf "\n  System time now: %s\n" "$_now_disp"
         printf "  Enter reboot time (HH:MM, %s): " "$(date +%Z)"
         read -r _rtime
+        # Accept single-digit hour (4:00 → 04:00)
+        case "$_rtime" in [0-9]:*) _rtime="0$_rtime" ;; esac
         if ! printf "%s" "$_rtime" | grep -qE "^([01][0-9]|2[0-3]):[0-5][0-9]$"; then
-            printf "\nInvalid time format. Use HH:MM (e.g. 02:30).\n"
+            printf "\nInvalid time format. Use HH:MM or H:MM (e.g. 04:30).\n"
             pause; return
         fi
     fi
